@@ -19,6 +19,30 @@ func normalized(t *testing.T, s string) object {
 	return m
 }
 
+func TestRealityTCPCompatibilityPreservesExplicitAndOtherTransports(t *testing.T) {
+	config := normalized(t, `{"outbounds":[
+		{"type":"vless","tls":{"enabled":true,"reality":{"enabled":true}}},
+		{"type":"vless","tls":{"enabled":true,"fragment":false,"reality":{"enabled":true}}},
+		{"type":"vless","tls":{"enabled":true,"reality":{"enabled":false}}},
+		{"type":"vless","transport":{"type":"ws"},"tls":{"enabled":true,"reality":{"enabled":true}}},
+		{"type":"trojan","tls":{"enabled":true,"reality":{"enabled":true}}}
+	]}`)
+	for index, raw := range list(config["outbounds"]) {
+		tls := obj(obj(raw)["tls"])
+		if index == 0 {
+			if tls["fragment"] != true || tls["fragment_fallback_delay"] != "50ms" {
+				t.Fatal("TCP REALITY compatibility missing")
+			}
+		} else if index == 1 {
+			if tls["fragment"] != false || tls["fragment_fallback_delay"] != nil {
+				t.Fatal("explicit opt-out changed")
+			}
+		} else if tls["fragment"] != nil {
+			t.Fatalf("unrelated outbound %d changed", index)
+		}
+	}
+}
+
 func TestLegacyDNSPreservesProxyAndBootstrapPaths(t *testing.T) {
 	m := normalized(t, `{"route":{"final":"proxy"},"outbounds":[{"type":"vless","tag":"proxy"},{"type":"direct","tag":"direct"}],"dns":{"final":"dns-remote","servers":[{"tag":"dns-local","address":"local","detour":"direct"},{"tag":"dns-direct","address":"https://resolver.example/dns-query","detour":"direct","address_resolver":"dns-local","strategy":"prefer_ipv4"},{"tag":"dns-remote","address":"tls://1.1.1.1","address_resolver":"dns-direct"}],"rules":[{"outbound":["any"],"server":"dns-direct"},{"domain_suffix":["example.org"],"server":"dns-direct"}]}}`)
 	d := obj(m["dns"])

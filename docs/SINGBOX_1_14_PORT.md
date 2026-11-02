@@ -191,3 +191,40 @@ running VPN74ms, отдельный HTTPS probe200/VPN=true/NL821ms.
 Это инструментализация неустранённого сбоя, не подтверждённое исправление
 телефонного VPN. Настройки сервера, DNS и REALITY authentication не менялись.
 Unit/regression: `go test -count=1 -tags 'with_gvisor,with_quic,with_wireguard,with_utls,with_clash_api' ./configcompat ./connectiontest`.
+
+## Alpha3: REALITY TCP packet compatibility
+
+Новый телефонный экспорт alpha2 подтверждает два одинаковых отказа: TCP51ms,
+затем timeout3000/3002ms без connection_ready/request_sent. При предоставленном
+raw VLESS/REALITY профиле это локализует ожидание в установлении защищённого
+outbound, а не в получении HTTP ответа. Конкретная причина на TECNO не доказана.
+
+Воспроизведён отдельный дефект: RealityClientConfig.ClientHandshake не применял
+fragment=true из базового UTLSClientConfig. `TestRealityHonorsTCPFragment` до
+правки FAIL (first_write1785=whole_record1785), после PASS (частичный first write).
+Патч применяет уже существующий tlsfragment.Conn к REALITY при fragment=true.
+Разбиваются TCP-записи, а не TLS records; ClientHello/MLKEM/authentication bytes
+сохраняются. Режим не включает record_fragment или spoof.
+
+Runtime normalizer по умолчанию включает fragment=true/fallback50ms только для
+VLESS с REALITY и без дополнительного транспорта. Явный fragment=false сохраняется,
+остальные протоколы/транспорты не меняются. БД и подписки не переписываются.
+Это проверяемый кандидат для телефонного пути, не установленная причина DPI.
+Тайм-ауты app test3000/5000ms не увеличены. Ядро1.14.4-neko.2,
+APK1.4.3-sb1.14.4-alpha3-reality/versionCode245, прежний package и signing key.
+
+Нативные проверки: failing→passing fragment test, full configcompat/connectiontest,
+REALITY/Vision HTTPS echo110592bytes с Xray26.2.6 и26.10.31 PASS; приватный NL
+профиль с fragment=true проходит HTTPS204. Compatibility patch применён к clean
+pinned index и воспроизвёл build source. Физический TECNO остаётся непринятым.
+
+Android14/x86_64 alpha2→alpha3 install-r PASS, профиль сохранился; app profile
+test78ms, настоящая running VPN button93ms. Отдельный UID: public HTTPS200,
+VPN=true/NL2054ms. Синтетический REALITY/Vision: HTTP echo131072bytes1001ms,
+UDP DNS539ms PASS (FakeDNS выключен, remote DNS идёт через proxy). Контролируемые
+Android success/timeout/certificate и export/clear PASS; TLS rejection сохранён.
+
+ARM64 APK25692269bytes, подпись прежняя, ZIP/ELF16KiB, SO=AAR, assets/icons PASS.
+SHA256: `cdac847a32ceaa7e87ec0849e82d1c245d47845a44e9c2313d6c457958b296cd`.
+Эти результаты не являются runtime-приёмкой на ARM64 TECNO и не подтверждают
+гипотезу о фильтрации его ClientHello. Alpha3 остаётся кандидатом для проверки.

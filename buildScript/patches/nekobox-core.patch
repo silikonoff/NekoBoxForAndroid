@@ -421,18 +421,34 @@ index 75fac2f3d3d73530c2a075dcb38be5be355cb8fb..e55dda0c09bce2c1667f7eafd0096c9f
  			listenConfig := d.udpListener
  			if d.autoDetectBindFunc != nil {
 diff --git a/common/tls/reality_client.go b/common/tls/reality_client.go
-index be4806fe67c132bd5e09839d770dadf52f038412..ad159900b0bc9ae0c5bad26a7a4734609f992bf7 100644
+index be4806fe67c132bd5e09839d770dadf52f038412..076d52f029a4d472ae439f6036c4a62db11ca5fe 100644
 --- a/common/tls/reality_client.go
 +++ b/common/tls/reality_client.go
-@@ -30,7 +30,6 @@ import (
+@@ -28,9 +28,9 @@ import (
+ 	"unsafe"
+ 
  	"github.com/sagernet/sing-box/adapter"
++	tf "github.com/sagernet/sing-box/common/tlsfragment"
  	C "github.com/sagernet/sing-box/constant"
  	"github.com/sagernet/sing-box/option"
 -	"github.com/sagernet/sing/common"
  	"github.com/sagernet/sing/common/debug"
  	E "github.com/sagernet/sing/common/exceptions"
  	"github.com/sagernet/sing/common/logger"
-@@ -146,18 +145,8 @@ func (e *RealityClientConfig) ClientHandshake(ctx context.Context, conn net.Conn
+@@ -133,6 +133,12 @@ func (e *RealityClientConfig) Client(conn net.Conn) (Conn, error) {
+ }
+ 
+ func (e *RealityClientConfig) ClientHandshake(ctx context.Context, conn net.Conn) (aTLS.Conn, error) {
++	// REALITY constructs its own uTLS connection instead of calling
++	// UTLSClientConfig.Client, so apply the packet-fragment option here too.
++	// Preserve the TLS record and ClientHello bytes used for REALITY authentication.
++	if e.uClient.fragment {
++		conn = tf.NewConn(conn, ctx, true, false, e.uClient.fragmentFallbackDelay)
++	}
+ 	verifier := &realityVerifier{
+ 		serverName: e.uClient.ServerName(),
+ 	}
+@@ -146,18 +152,8 @@ func (e *RealityClientConfig) ClientHandshake(ctx context.Context, conn net.Conn
  	if err != nil {
  		return nil, err
  	}
@@ -453,7 +469,7 @@ index be4806fe67c132bd5e09839d770dadf52f038412..ad159900b0bc9ae0c5bad26a7a473460
  	err = uConn.BuildHandshakeState()
  	if err != nil {
  		return nil, err
-@@ -201,6 +190,9 @@ func (e *RealityClientConfig) ClientHandshake(ctx context.Context, conn net.Conn
+@@ -201,6 +197,9 @@ func (e *RealityClientConfig) ClientHandshake(ctx context.Context, conn net.Conn
  		return nil, E.New("nil KeyShareKeys")
  	}
  	ecdheKey := keyShareKeys.Ecdhe

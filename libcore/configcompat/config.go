@@ -37,7 +37,30 @@ func Normalize(input []byte) ([]byte, error) {
 	if err := dns(config); err != nil {
 		return nil, err
 	}
+	realityTCPCompatibility(config)
 	return json.Marshal(config)
+}
+
+// The current Chrome hybrid ClientHello is larger than the legacy 1.12 hello.
+// Split its TCP transmission without removing key shares or changing TLS bytes.
+// An explicit fragment=false remains an opt-out for advanced configurations.
+func realityTCPCompatibility(config object) {
+	for _, raw := range list(config["outbounds"]) {
+		outbound := obj(raw)
+		if str(outbound["type"]) != "vless" || len(obj(outbound["transport"])) != 0 {
+			continue
+		}
+		tls := obj(outbound["tls"])
+		if tls["enabled"] != true || obj(tls["reality"])["enabled"] != true {
+			continue
+		}
+		if _, explicit := tls["fragment"]; !explicit {
+			tls["fragment"] = true
+			if _, explicit := tls["fragment_fallback_delay"]; !explicit {
+				tls["fragment_fallback_delay"] = "50ms"
+			}
+		}
+	}
 }
 
 func str(v any) string { s, _ := v.(string); return s }
