@@ -6,8 +6,10 @@ import (
 	"fmt"
 	"io"
 	"libcore/configcompat"
+	"libcore/connectiontest"
 	"libcore/device"
 	"log"
+	"net/http"
 	"runtime"
 	"runtime/debug"
 	"strings"
@@ -222,25 +224,55 @@ func (b *BoxInstance) SelectOutbound(tag string) bool {
 	return false
 }
 
-func UrlTest(i *BoxInstance, link string, timeout int32) (latency int32, err error) {
-	defer device.DeferPanicToError("box.UrlTest", func(err_ error) { err = err_ })
+func connectionTestClient(i *BoxInstance) *http.Client {
 	var connectionTracker adapter.ConnectionTracker
 	// test i
 	if i != nil {
 		if i.v2api != nil {
 			connectionTracker = i.v2api.StatsService()
 		}
-		return speedtest.UrlTest(boxapi.CreateProxyHttpClient(i.Box, connectionTracker), link, timeout, speedtest.UrlTestStandard_RTT)
+		return boxapi.CreateProxyHttpClient(i.Box, connectionTracker)
 	}
 	// test direct
 	if mainInstance == nil {
-		return speedtest.UrlTest(boxapi.CreateProxyHttpClient(nil, nil), link, timeout, speedtest.UrlTestStandard_RTT)
+		return boxapi.CreateProxyHttpClient(nil, nil)
 	}
 	// test mainInstance
 	if mainInstance.v2api != nil {
 		connectionTracker = mainInstance.v2api.StatsService()
 	}
-	return speedtest.UrlTest(boxapi.CreateProxyHttpClient(mainInstance.Box, connectionTracker), link, timeout, speedtest.UrlTestStandard_RTT)
+	return boxapi.CreateProxyHttpClient(mainInstance.Box, connectionTracker)
+}
+
+func UrlTest(i *BoxInstance, link string, timeout int32) (latency int32, err error) {
+	defer device.DeferPanicToError("box.UrlTest", func(err_ error) { err = err_ })
+	return speedtest.UrlTest(connectionTestClient(i), link, timeout, speedtest.UrlTestStandard_RTT)
+}
+
+type ConnectionTestResult struct {
+	Latency     int32
+	Failure     string
+	Diagnostics string
+}
+
+// RunConnectionTest preserves the existing URL test and attaches a safe stage trace.
+// Failure is for the existing error UI only; Diagnostics contains no error text.
+func RunConnectionTest(i *BoxInstance, link string, timeout int32) (result *ConnectionTestResult) {
+	result = &ConnectionTestResult{}
+	trace := connectiontest.New()
+	defer device.DeferPanicToError("box.RunConnectionTest", func(err error) {
+		result.Failure = err.Error()
+		result.Diagnostics = trace.Report(err)
+	})
+	client := connectionTestClient(i)
+	client.Transport = trace.Wrap(client.Transport)
+	latency, err := speedtest.UrlTest(client, link, timeout, speedtest.UrlTestStandard_RTT)
+	result.Latency = latency
+	if err != nil {
+		result.Failure = err.Error()
+	}
+	result.Diagnostics = trace.Report(err)
+	return result
 }
 
 var protectCloser io.Closer

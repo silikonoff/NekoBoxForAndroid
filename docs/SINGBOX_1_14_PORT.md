@@ -153,3 +153,41 @@ DNS/IPv6 leaks, per-app routing и always-on/lockdown на Android; действ
    alpha не заменяет рабочий клиент. Откат: открыть исходный NekoBox с его прежней БД.
 
 Следующий этап после приёмки: отдельная интеграция Xray для XHTTP.
+
+## Диагностическая alpha2 / 02.11.2026
+
+Владелец сообщил timeout при «Проверить подключение» на TECNO KL7/Android14
+по Wi-Fi; обычный NekoBox в этот момент выключен. Оба экспорта телефона
+не содержат сетевой трассировки при default logLevel=0. Причина не установлена.
+
+В изолированном Android14 x86_64 AVD alpha1 проходит локальные VLESS TCP,
+DNS и REALITY/Vision HTTP/HTTPS echo. Без VPN контрольный TEST-NET адрес
+даёт ожидаемый timeout. Приватный профиль владельца импортирован настоящим
+парсером приложения: отдельный URL test PASS65ms, а независимый UID проходит
+public HTTPS через Android VpnService, VPN=true/exit countryNL. Ключ нигде
+не опубликован. Exact arm64 APK под libndk_translation Google APIs14 выдаёт
+SIGILL при старте, поэтому ARM runtime этим эмулятором не принят.
+
+Alpha2-diag добавляет автоматическую безопасную диагностику двух реальных
+путей тестирования: TestInstance/profile (5000ms) и running VPN (3000ms).
+Поведение HTTP-теста и тайм-ауты сохранены. `connectiontest.Trace` дополняет
+HTTP trace без подмены timing callbacks; ошибки классифицируются фиксированными
+токенами. Этап acquire_connection включает работу dialer/core, а не гарантированно
+только TCP: отсутствие дальнейшего этапа само по себе не различает core DNS
+и прокси-handshake. TLS-события относятся к HTTPS test target.
+
+Диагностика ограничена32KiB на процесс main/bg и доступна при logLevel=0.
+Обычный экспорт журнала включает её; очистка журнала удаляет её. В этих записях
+нет адресов, URL, имён профилей, UUID, ключей и полного текста ошибок. Full core
+и plugin config dumps удалены. Автоматической отправки данных нет.
+
+ARM64 APK `NekoBox-SB-1.4.3-sb1.14.4-alpha2-diag-arm64-v8a.apk`, versionCode240,
+прежние package и signing certificate, устанавливается поверх alpha1.
+SHA256: `1cc04d85598848cac33ce4150a4ff78b041b8daac6bc4a1b8c746968f5d61c93`.
+Подпись, ZIP/ELF16KiB, bundled assets и совпадение SO с новым AAR проверены.
+После обновления x86_64 AVD профиль сохранился: URL test69ms, реальная кнопка
+running VPN74ms, отдельный HTTPS probe200/VPN=true/NL821ms.
+
+Это инструментализация неустранённого сбоя, не подтверждённое исправление
+телефонного VPN. Настройки сервера, DNS и REALITY authentication не менялись.
+Unit/regression: `go test -count=1 -tags 'with_gvisor,with_quic,with_wireguard,with_utls,with_clash_api' ./configcompat ./connectiontest`.
