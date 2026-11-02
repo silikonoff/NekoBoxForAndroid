@@ -1,5 +1,16 @@
 # NekoBox for Android
 
+## NekoBox SB — sing-box 1.14.4 fork
+
+Development fork: [silikonoff/NekoBoxForAndroid](https://github.com/silikonoff/NekoBoxForAndroid).
+The Android interface and existing profile storage are retained; the core is based
+on upstream sing-box 1.14.4 with a small, versioned NekoBox compatibility patch.
+The development app uses a separate application ID and can coexist with NekoBox.
+
+[Build instructions, changes and acceptance status](docs/SINGBOX_1_14_PORT.md).
+This is an alpha development branch; Android VPN traffic acceptance is still required.
+Original upstream documentation and attribution follow below.
+
 [![API](https://img.shields.io/badge/API-21%2B-brightgreen.svg?style=flat)](https://android-arsenal.com/api?level=21)
 [![Releases](https://img.shields.io/github/v/release/MatsuriDayo/NekoBoxForAndroid)](https://github.com/MatsuriDayo/NekoBoxForAndroid/releases)
 [![License: GPL-3.0](https://img.shields.io/badge/license-GPL--3.0-orange.svg)](https://www.gnu.org/licenses/gpl-3.0)

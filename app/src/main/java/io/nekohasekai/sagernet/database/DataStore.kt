@@ -95,7 +95,7 @@ object DataStore : OnPreferenceDataStoreChangeListener {
     //
 
     var isExpert by configurationStore.boolean(Key.APP_EXPERT)
-    var appTheme by configurationStore.int(Key.APP_THEME)
+    var appTheme by configurationStore.int(Key.APP_THEME) { io.nekohasekai.sagernet.utils.Theme.BLUE }
     var nightTheme by configurationStore.stringToInt(Key.NIGHT_THEME)
     var serviceMode by configurationStore.string(Key.SERVICE_MODE) { Key.MODE_VPN }
 

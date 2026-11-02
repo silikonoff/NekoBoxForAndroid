@@ -94,10 +94,13 @@ fun Project.setupCommon() {
                     }
                 }
                 getByName("debug") {
-                    applicationIdSuffix = "debug"
+                    applicationIdSuffix = ".debug"
                     debuggable(true)
                     jniDebuggable(true)
                 }
+            }
+            applicationVariants.all {
+                resValue("string", "shortcut_target_package", applicationId)
             }
             applicationVariants.forEach { variant ->
                 variant.outputs.forEach {

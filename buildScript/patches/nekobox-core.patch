@@ -1,0 +1,604 @@
+diff --git a/box.go b/box.go
+index 3654fb65d1fd42a117f99f76c7f59cd93a8b4b33..cd338722d73504a5bd423640fec70797639b07c0 100644
+--- a/box.go
++++ b/box.go
+@@ -151,7 +151,7 @@ func New(options Options) (*Box, error) {
+ 	var needCacheFile bool
+ 	var needClashAPI bool
+ 	var needV2RayAPI bool
+-	if experimentalOptions.CacheFile != nil && experimentalOptions.CacheFile.Enabled || options.PlatformLogWriter != nil {
++	if experimentalOptions.CacheFile != nil && experimentalOptions.CacheFile.Enabled {
+ 		needCacheFile = true
+ 	}
+ 	if experimentalOptions.ClashAPI != nil {
+diff --git a/boxapi/go_http.go b/boxapi/go_http.go
+new file mode 100644
+index 0000000000000000000000000000000000000000..3cba5ebce8358829e64c6e8d3e399b3cdb9b0ac8
+--- /dev/null
++++ b/boxapi/go_http.go
+@@ -0,0 +1,30 @@
++package boxapi
++
++import (
++	"context"
++	"net"
++	"net/http"
++	"time"
++
++	box "github.com/sagernet/sing-box"
++	"github.com/sagernet/sing-box/adapter"
++)
++
++func CreateProxyHttpClient(box *box.Box, tracker adapter.ConnectionTracker) *http.Client {
++	transport := &http.Transport{
++		TLSHandshakeTimeout:   time.Second * 3,
++		ResponseHeaderTimeout: time.Second * 3,
++	}
++
++	if box != nil {
++		transport.DialContext = func(ctx context.Context, network, addr string) (net.Conn, error) {
++			return DialContext(ctx, box, tracker, network, addr)
++		}
++	}
++
++	client := &http.Client{
++		Transport: transport,
++	}
++
++	return client
++}
+diff --git a/boxapi/go_net.go b/boxapi/go_net.go
+new file mode 100644
+index 0000000000000000000000000000000000000000..5a7637d1d7c5e0273d4cc2a97a22f26c2b8fedca
+--- /dev/null
++++ b/boxapi/go_net.go
+@@ -0,0 +1,23 @@
++package boxapi
++
++import (
++	"context"
++	"net"
++
++	box "github.com/sagernet/sing-box"
++	"github.com/sagernet/sing-box/adapter"
++	"github.com/sagernet/sing-box/common/dialer"
++	"github.com/sagernet/sing/common/metadata"
++)
++
++func DialContext(ctx context.Context, box *box.Box, tracker adapter.ConnectionTracker, network, addr string) (net.Conn, error) {
++	defOutboundTag := box.Outbound().Default().Tag()
++	conn, err := dialer.NewDetour(box.Outbound(), defOutboundTag, true).DialContext(ctx, network, metadata.ParseSocksaddr(addr))
++	if err != nil {
++		return nil, err
++	}
++	if ss, ok := tracker.(*SbStatsService); ok {
++		conn = ss.RoutedConnectionInternal("", defOutboundTag, "", conn, false)
++	}
++	return conn, nil
++}
+diff --git a/boxapi/v2ray_server.go b/boxapi/v2ray_server.go
+new file mode 100644
+index 0000000000000000000000000000000000000000..a97e0af5cc26eba8ae55044f113eac1048afc469
+--- /dev/null
++++ b/boxapi/v2ray_server.go
+@@ -0,0 +1,32 @@
++package boxapi
++
++import (
++	"context"
++
++	"github.com/sagernet/sing-box/adapter"
++	"github.com/sagernet/sing-box/option"
++)
++
++type SbV2rayServer struct {
++	ss *SbStatsService
++}
++
++func NewSbV2rayServer(options option.V2RayStatsServiceOptions) *SbV2rayServer {
++	return &SbV2rayServer{
++		ss: NewSbStatsService(options),
++	}
++}
++
++func (s *SbV2rayServer) Start() error                            { return nil }
++func (s *SbV2rayServer) Close() error                            { return nil }
++func (s *SbV2rayServer) StatsService() adapter.ConnectionTracker { return s.ss }
++
++// NekoRay style API
++
++func (s *SbV2rayServer) QueryStats(name string) int64 {
++	value, err := s.ss.GetStats(context.TODO(), name, true)
++	if err == nil {
++		return value
++	}
++	return 0
++}
+diff --git a/boxapi/v2ray_stats_service.go b/boxapi/v2ray_stats_service.go
+new file mode 100644
+index 0000000000000000000000000000000000000000..c31095833ebd5188112f8aff4eaf47cb41396187
+--- /dev/null
++++ b/boxapi/v2ray_stats_service.go
+@@ -0,0 +1,205 @@
++package boxapi
++
++import (
++	"context"
++	"net"
++	"sync"
++	"sync/atomic"
++	"time"
++
++	"github.com/sagernet/sing-box/adapter"
++	"github.com/sagernet/sing-box/option"
++	"github.com/sagernet/sing-tun"
++	"github.com/sagernet/sing/common/bufio"
++	E "github.com/sagernet/sing/common/exceptions"
++	N "github.com/sagernet/sing/common/network"
++)
++
++type SbStatsService struct {
++	createdAt time.Time
++	inbounds  map[string]bool
++	outbounds map[string]bool
++	users     map[string]bool
++	access    sync.Mutex
++	counters  map[string]*atomic.Int64
++}
++
++func NewSbStatsService(options option.V2RayStatsServiceOptions) *SbStatsService {
++	if !options.Enabled {
++		return nil
++	}
++	inbounds := make(map[string]bool)
++	outbounds := make(map[string]bool)
++	users := make(map[string]bool)
++	for _, inbound := range options.Inbounds {
++		inbounds[inbound] = true
++	}
++	for _, outbound := range options.Outbounds {
++		outbounds[outbound] = true
++	}
++	for _, user := range options.Users {
++		users[user] = true
++	}
++	return &SbStatsService{
++		createdAt: time.Now(),
++		inbounds:  inbounds,
++		outbounds: outbounds,
++		users:     users,
++		counters:  make(map[string]*atomic.Int64),
++	}
++}
++
++func (s *SbStatsService) RoutedConnection(ctx context.Context, conn net.Conn, metadata adapter.InboundContext, matchedRule adapter.Rule, matchOutbound adapter.Outbound) net.Conn {
++	inbound := metadata.Inbound
++	user := metadata.User
++	outbound := matchOutbound.Tag()
++	return s.RoutedConnectionInternal(inbound, outbound, user, conn, true)
++}
++
++func (s *SbStatsService) RoutedConnectionInternal(inbound string, outbound string, user string, conn net.Conn, directIn bool) net.Conn {
++	var readCounter []*atomic.Int64
++	var writeCounter []*atomic.Int64
++	countInbound := inbound != "" && s.inbounds[inbound]
++	countOutbound := outbound != "" && s.outbounds[outbound]
++	countUser := user != "" && s.users[user]
++	if !countInbound && !countOutbound && !countUser {
++		return conn
++	}
++	s.access.Lock()
++	if countInbound {
++		readCounter = append(readCounter, s.loadOrCreateCounter("inbound>>>"+inbound+">>>traffic>>>uplink"))
++		writeCounter = append(writeCounter, s.loadOrCreateCounter("inbound>>>"+inbound+">>>traffic>>>downlink"))
++	}
++	if countOutbound {
++		readCounter = append(readCounter, s.loadOrCreateCounter("outbound>>>"+outbound+">>>traffic>>>uplink"))
++		writeCounter = append(writeCounter, s.loadOrCreateCounter("outbound>>>"+outbound+">>>traffic>>>downlink"))
++	}
++	if countUser {
++		readCounter = append(readCounter, s.loadOrCreateCounter("user>>>"+user+">>>traffic>>>uplink"))
++		writeCounter = append(writeCounter, s.loadOrCreateCounter("user>>>"+user+">>>traffic>>>downlink"))
++	}
++	s.access.Unlock()
++	if directIn {
++		conn = bufio.NewInt64CounterConn(conn, readCounter, writeCounter)
++	} else {
++		conn = bufio.NewInt64CounterConn(conn, writeCounter, readCounter)
++	}
++	return conn
++}
++
++func (s *SbStatsService) RoutedPacketConnection(ctx context.Context, conn N.PacketConn, metadata adapter.InboundContext, matchedRule adapter.Rule, matchOutbound adapter.Outbound) N.PacketConn {
++	inbound := metadata.Inbound
++	user := metadata.User
++	outbound := matchOutbound.Tag()
++	var readCounter []*atomic.Int64
++	var writeCounter []*atomic.Int64
++	countInbound := inbound != "" && s.inbounds[inbound]
++	countOutbound := outbound != "" && s.outbounds[outbound]
++	countUser := user != "" && s.users[user]
++	if !countInbound && !countOutbound && !countUser {
++		return conn
++	}
++	s.access.Lock()
++	if countInbound {
++		readCounter = append(readCounter, s.loadOrCreateCounter("inbound>>>"+inbound+">>>traffic>>>uplink"))
++		writeCounter = append(writeCounter, s.loadOrCreateCounter("inbound>>>"+inbound+">>>traffic>>>downlink"))
++	}
++	if countOutbound {
++		readCounter = append(readCounter, s.loadOrCreateCounter("outbound>>>"+outbound+">>>traffic>>>uplink"))
++		writeCounter = append(writeCounter, s.loadOrCreateCounter("outbound>>>"+outbound+">>>traffic>>>downlink"))
++	}
++	if countUser {
++		readCounter = append(readCounter, s.loadOrCreateCounter("user>>>"+user+">>>traffic>>>uplink"))
++		writeCounter = append(writeCounter, s.loadOrCreateCounter("user>>>"+user+">>>traffic>>>downlink"))
++	}
++	s.access.Unlock()
++	return bufio.NewInt64CounterPacketConn(conn, readCounter, nil, writeCounter, nil)
++}
++
++func (s *SbStatsService) GetStats(ctx context.Context, name string, reset bool) (int64, error) {
++	s.access.Lock()
++	counter, loaded := s.counters[name]
++	s.access.Unlock()
++	if !loaded {
++		return 0, E.New(name, " not found.")
++	}
++	var value int64
++	if reset {
++		value = counter.Swap(0)
++	} else {
++		value = counter.Load()
++	}
++	return value, nil
++}
++
++// QueryStats
++
++// GetSysStats
++
++//nolint:staticcheck
++func (s *SbStatsService) loadOrCreateCounter(name string) *atomic.Int64 {
++	counter, loaded := s.counters[name]
++	if loaded {
++		return counter
++	}
++	counter = &atomic.Int64{}
++	s.counters[name] = counter
++	return counter
++}
++
++func (s *SbStatsService) RoutedFlow(ctx context.Context, metadata adapter.InboundContext, matchedRule adapter.Rule, matchOutbound adapter.Outbound) tun.FlowTracker {
++	inbound := metadata.Inbound
++	user := metadata.User
++	outbound := matchOutbound.Tag()
++	var uplinkCounter []*atomic.Int64
++	var downlinkCounter []*atomic.Int64
++	countInbound := inbound != "" && s.inbounds[inbound]
++	countOutbound := outbound != "" && s.outbounds[outbound]
++	countUser := user != "" && s.users[user]
++	if !countInbound && !countOutbound && !countUser {
++		return nil
++	}
++	s.access.Lock()
++	if countInbound {
++		uplinkCounter = append(uplinkCounter, s.loadOrCreateCounter("inbound>>>"+inbound+">>>traffic>>>uplink"))
++		downlinkCounter = append(downlinkCounter, s.loadOrCreateCounter("inbound>>>"+inbound+">>>traffic>>>downlink"))
++	}
++	if countOutbound {
++		uplinkCounter = append(uplinkCounter, s.loadOrCreateCounter("outbound>>>"+outbound+">>>traffic>>>uplink"))
++		downlinkCounter = append(downlinkCounter, s.loadOrCreateCounter("outbound>>>"+outbound+">>>traffic>>>downlink"))
++	}
++	if countUser {
++		uplinkCounter = append(uplinkCounter, s.loadOrCreateCounter("user>>>"+user+">>>traffic>>>uplink"))
++		downlinkCounter = append(downlinkCounter, s.loadOrCreateCounter("user>>>"+user+">>>traffic>>>downlink"))
++	}
++	s.access.Unlock()
++	return &statsFlowTracker{uplinkCounter: uplinkCounter, downlinkCounter: downlinkCounter}
++}
++
++var _ tun.FlowTracker = (*statsFlowTracker)(nil)
++
++type statsFlowTracker struct {
++	uplinkCounter   []*atomic.Int64
++	downlinkCounter []*atomic.Int64
++}
++
++func (t *statsFlowTracker) AttachFlow(handle tun.FlowHandle) {
++}
++
++func (t *statsFlowTracker) CountForward(n int) {
++	for _, counter := range t.uplinkCounter {
++		counter.Add(int64(n))
++	}
++}
++
++func (t *statsFlowTracker) CountReverse(n int) {
++	for _, counter := range t.downlinkCounter {
++		counter.Add(int64(n))
++	}
++}
++
++func (t *statsFlowTracker) FlowEstablished() {
++}
++
++func (t *statsFlowTracker) CloseFlow(reason tun.FlowCloseReason) {
++}
+diff --git a/boxapi/v2ray_stats_service_test.go b/boxapi/v2ray_stats_service_test.go
+new file mode 100644
+index 0000000000000000000000000000000000000000..c42c2951941efbc10508df2e70ad30d1f7c9c3b8
+--- /dev/null
++++ b/boxapi/v2ray_stats_service_test.go
+@@ -0,0 +1,57 @@
++package boxapi
++
++import (
++	"context"
++	"testing"
++
++	"github.com/sagernet/sing-box/adapter"
++	"github.com/sagernet/sing-box/option"
++)
++
++type taggedOutbound struct {
++	adapter.Outbound
++	tag string
++}
++
++func (o taggedOutbound) Tag() string { return o.tag }
++
++// Native TUN flow offload must not bypass the counters displayed by NekoBox.
++func TestFlowTrafficAndReset(t *testing.T) {
++	s := NewSbStatsService(option.V2RayStatsServiceOptions{Enabled: true, Outbounds: []string{"proxy"}})
++	f := s.RoutedFlow(context.Background(), adapter.InboundContext{}, nil, taggedOutbound{tag: "proxy"})
++	if f == nil {
++		t.Fatal("tracked outbound has no flow tracker")
++	}
++	f.CountForward(137)
++	f.CountReverse(293)
++	for direction, want := range map[string]int64{"uplink": 137, "downlink": 293} {
++		name := "outbound>>>proxy>>>traffic>>>" + direction
++		got, err := s.GetStats(context.Background(), name, true)
++		if err != nil || got != want {
++			t.Fatalf("%s: got %d, %v; want %d", direction, got, err, want)
++		}
++		got, err = s.GetStats(context.Background(), name, false)
++		if err != nil || got != 0 {
++			t.Fatalf("%s counter did not reset: %d, %v", direction, got, err)
++		}
++	}
++}
++
++func TestFlowDoesNotCountUnselectedOutbound(t *testing.T) {
++	s := NewSbStatsService(option.V2RayStatsServiceOptions{Enabled: true, Outbounds: []string{"proxy"}})
++	if s.RoutedFlow(context.Background(), adapter.InboundContext{}, nil, taggedOutbound{tag: "direct"}) != nil {
++		t.Fatal("unexpected accounting for an untracked outbound")
++	}
++}
++
++func TestFlowAccountsInboundAndUser(t *testing.T) {
++	s := NewSbStatsService(option.V2RayStatsServiceOptions{Enabled: true, Inbounds: []string{"tun"}, Users: []string{"test-user"}})
++	f := s.RoutedFlow(context.Background(), adapter.InboundContext{Inbound: "tun", User: "test-user"}, nil, taggedOutbound{tag: "proxy"})
++	f.CountForward(71)
++	for _, name := range []string{"inbound>>>tun>>>traffic>>>uplink", "user>>>test-user>>>traffic>>>uplink"} {
++		got, err := s.GetStats(context.Background(), name, false)
++		if err != nil || got != 71 {
++			t.Fatalf("%s: got %d, %v", name, got, err)
++		}
++	}
++}
+diff --git a/common/dialer/default.go b/common/dialer/default.go
+index 75fac2f3d3d73530c2a075dcb38be5be355cb8fb..e55dda0c09bce2c1667f7eafd0096c9fbc065e31 100644
+--- a/common/dialer/default.go
++++ b/common/dialer/default.go
+@@ -25,6 +25,9 @@ import (
+ 	"github.com/database64128/tfo-go/v2"
+ )
+ 
++// NekoBox protects sockets through Android VpnService instead of interface selection.
++var DoNotSelectInterface bool
++
+ var (
+ 	_ ParallelInterfaceDialer = (*DefaultDialer)(nil)
+ 	_ UDPListener             = (*DefaultDialer)(nil)
+@@ -273,7 +276,7 @@ func (d *DefaultDialer) DialContext(ctx context.Context, network string, address
+ 	} else if address.IsDomain() {
+ 		return nil, E.New("domain not resolved")
+ 	}
+-	if d.networkStrategy == nil {
++	if DoNotSelectInterface || d.networkStrategy == nil {
+ 		conn, err := listener.ListenNetworkNamespace[net.Conn](ctx, d.netns, func() (net.Conn, error) {
+ 			switch N.NetworkName(network) {
+ 			case N.NetworkUDP:
+@@ -344,7 +347,7 @@ func (d *DefaultDialer) DialParallelInterface(ctx context.Context, network strin
+ }
+ 
+ func (d *DefaultDialer) ListenPacket(ctx context.Context, destination M.Socksaddr) (net.PacketConn, error) {
+-	if d.networkStrategy == nil {
++	if DoNotSelectInterface || d.networkStrategy == nil {
+ 		packetConn, err := listener.ListenNetworkNamespace[net.PacketConn](ctx, d.netns, func() (net.PacketConn, error) {
+ 			listenConfig := d.udpListener
+ 			if d.autoDetectBindFunc != nil {
+diff --git a/common/tls/reality_client.go b/common/tls/reality_client.go
+index be4806fe67c132bd5e09839d770dadf52f038412..ad159900b0bc9ae0c5bad26a7a4734609f992bf7 100644
+--- a/common/tls/reality_client.go
++++ b/common/tls/reality_client.go
+@@ -30,7 +30,6 @@ import (
+ 	"github.com/sagernet/sing-box/adapter"
+ 	C "github.com/sagernet/sing-box/constant"
+ 	"github.com/sagernet/sing-box/option"
+-	"github.com/sagernet/sing/common"
+ 	"github.com/sagernet/sing/common/debug"
+ 	E "github.com/sagernet/sing/common/exceptions"
+ 	"github.com/sagernet/sing/common/logger"
+@@ -146,18 +145,8 @@ func (e *RealityClientConfig) ClientHandshake(ctx context.Context, conn net.Conn
+ 	if err != nil {
+ 		return nil, err
+ 	}
+-	for _, extension := range uConn.Extensions {
+-		if ce, ok := extension.(*utls.SupportedCurvesExtension); ok {
+-			ce.Curves = common.Filter(ce.Curves, func(curveID utls.CurveID) bool {
+-				return curveID != utls.X25519MLKEM768
+-			})
+-		}
+-		if ks, ok := extension.(*utls.KeyShareExtension); ok {
+-			ks.KeyShares = common.Filter(ks.KeyShares, func(share utls.KeyShare) bool {
+-				return share.Group != utls.X25519MLKEM768
+-			})
+-		}
+-	}
++	// Preserve the fingerprint's hybrid key share. Current Xray REALITY rejects
++	// ClientHellos without X25519MLKEM768 before the optional X25519 share.
+ 	err = uConn.BuildHandshakeState()
+ 	if err != nil {
+ 		return nil, err
+@@ -201,6 +190,9 @@ func (e *RealityClientConfig) ClientHandshake(ctx context.Context, conn net.Conn
+ 		return nil, E.New("nil KeyShareKeys")
+ 	}
+ 	ecdheKey := keyShareKeys.Ecdhe
++	if ecdheKey == nil {
++		ecdheKey = keyShareKeys.MlkemEcdhe
++	}
+ 	if ecdheKey == nil {
+ 		return nil, E.New("nil ecdheKey")
+ 	}
+diff --git a/nekoutils/callback.go b/nekoutils/callback.go
+new file mode 100644
+index 0000000000000000000000000000000000000000..97f5612360d8bc8152fefd36fabe6accfc252692
+--- /dev/null
++++ b/nekoutils/callback.go
+@@ -0,0 +1,3 @@
++package nekoutils
++
++var Selector_OnProxySelected func(selectorTag string, tag string)
+diff --git a/nekoutils/srs.go b/nekoutils/srs.go
+new file mode 100644
+index 0000000000000000000000000000000000000000..a86df58a775ffffba5c79286e9423aa56d6e5afd
+--- /dev/null
++++ b/nekoutils/srs.go
+@@ -0,0 +1,7 @@
++package nekoutils
++
++import "github.com/sagernet/sing-box/option"
++
++var GetGeoIPHeadlessRules func(name string) ([]option.HeadlessRule, error)
++
++var GetGeoSiteHeadlessRules func(name string) ([]option.HeadlessRule, error)
+diff --git a/option/rule_action.go b/option/rule_action.go
+index 33ddd2bdc823d8a3ea9a1954e9e51f723ae6447b..8504a4cf8fce46b4d21249fd1a459f0a47ca14bb 100644
+--- a/option/rule_action.go
++++ b/option/rule_action.go
+@@ -267,8 +267,10 @@ func (r *RejectActionOptions) UnmarshalJSON(bytes []byte) error {
+ }
+ 
+ type RouteActionSniff struct {
+-	Sniffer badoption.Listable[string] `json:"sniffer,omitempty" enum:"tls,http,quic,dns,stun,bittorrent,dtls,ssh,rdp,ntp"`
+-	Timeout badoption.Duration         `json:"timeout,omitempty"`
++	// NekoBox compatibility: preserve the existing sniff-and-override setting.
++	OverrideDestination bool                       `json:"override_destination,omitempty"`
++	Sniffer             badoption.Listable[string] `json:"sniffer,omitempty" enum:"tls,http,quic,dns,stun,bittorrent,dtls,ssh,rdp,ntp"`
++	Timeout             badoption.Duration         `json:"timeout,omitempty"`
+ }
+ 
+ type RouteActionResolve struct {
+diff --git a/protocol/group/selector.go b/protocol/group/selector.go
+index 5780fc2c25da0d4d574ea49913ddb7f2de32438a..ba4f521a39f15e11f22911645f21629c274ef1e1 100644
+--- a/protocol/group/selector.go
++++ b/protocol/group/selector.go
+@@ -12,6 +12,7 @@ import (
+ 	"github.com/sagernet/sing-box/common/urltest"
+ 	C "github.com/sagernet/sing-box/constant"
+ 	"github.com/sagernet/sing-box/log"
++	"github.com/sagernet/sing-box/nekoutils"
+ 	"github.com/sagernet/sing-box/option"
+ 	"github.com/sagernet/sing/common"
+ 	E "github.com/sagernet/sing/common/exceptions"
+@@ -153,6 +154,9 @@ func (s *Selector) SelectOutbound(tag string) bool {
+ 		}
+ 	}
+ 	s.interruptGroup.Interrupt(s.interruptExternalConnections)
++	if nekoutils.Selector_OnProxySelected != nil {
++		nekoutils.Selector_OnProxySelected(s.Tag(), tag)
++	}
+ 	if s.history != nil {
+ 		s.history.NotifyUpdated()
+ 	}
+diff --git a/protocol/vless/outbound.go b/protocol/vless/outbound.go
+index c0ece0a2d831a879a52129cebab6db8e9b7d1784..3c290155e735ae8bec885763fd1526d6c7ea747d 100644
+--- a/protocol/vless/outbound.go
++++ b/protocol/vless/outbound.go
+@@ -92,11 +92,15 @@ func NewOutbound(ctx context.Context, router adapter.Router, logger log.ContextL
+ 			return nil, E.New("unknown packet encoding: ", *options.PacketEncoding)
+ 		}
+ 	}
++	muxOpts := common.PtrValueOrDefault(options.Multiplex)
++	if muxOpts.Enabled {
++		options.Flow = ""
++	}
+ 	outbound.client, err = vless.NewClient(options.UUID, options.Flow, logger)
+ 	if err != nil {
+ 		return nil, err
+ 	}
+-	outbound.multiplexDialer, err = mux.NewClientWithOptions((*vlessDialer)(outbound), logger, common.PtrValueOrDefault(options.Multiplex))
++	outbound.multiplexDialer, err = mux.NewClientWithOptions((*vlessDialer)(outbound), logger, muxOpts)
+ 	if err != nil {
+ 		return nil, err
+ 	}
+diff --git a/route/rule/rule_action.go b/route/rule/rule_action.go
+index 6fd1707accd9fa9f07d959a0f3fa0aa8a3e7a5cc..a464e8501d8c141adc41a34f22e43f86284213c3 100644
+--- a/route/rule/rule_action.go
++++ b/route/rule/rule_action.go
+@@ -81,8 +81,9 @@ func NewRuleAction(logger logger.ContextLogger, action option.RuleAction) (adapt
+ 		return &RuleActionHijackDNS{}, nil
+ 	case C.RuleActionTypeSniff:
+ 		sniffAction := &RuleActionSniff{
+-			SnifferNames: action.SniffOptions.Sniffer,
+-			Timeout:      time.Duration(action.SniffOptions.Timeout),
++			OverrideDestination: action.SniffOptions.OverrideDestination,
++			SnifferNames:        action.SniffOptions.Sniffer,
++			Timeout:             time.Duration(action.SniffOptions.Timeout),
+ 		}
+ 		return sniffAction, sniffAction.build()
+ 	case C.RuleActionTypeResolve:
+diff --git a/route/rule/rule_set_local.go b/route/rule/rule_set_local.go
+index 9d5d21e83e4ba95e6f5e7248db7639bc63a667f4..4656d25c1b4cb75638fc75a5724be0c7bd3b654e 100644
+--- a/route/rule/rule_set_local.go
++++ b/route/rule/rule_set_local.go
+@@ -11,6 +11,7 @@ import (
+ 	"github.com/sagernet/sing-box/adapter"
+ 	"github.com/sagernet/sing-box/common/srs"
+ 	C "github.com/sagernet/sing-box/constant"
++	"github.com/sagernet/sing-box/nekoutils"
+ 	"github.com/sagernet/sing-box/option"
+ 	"github.com/sagernet/sing/common"
+ 	E "github.com/sagernet/sing/common/exceptions"
+@@ -54,6 +55,28 @@ func NewLocalRuleSet(ctx context.Context, logger logger.Logger, tag string, opti
+ 			return nil, err
+ 		}
+ 	} else {
++		if strings.HasPrefix(options.LocalOptions.Path, "geoip:") {
++			rules, err := nekoutils.GetGeoIPHeadlessRules(strings.TrimPrefix(options.LocalOptions.Path, "geoip:"))
++			if err != nil {
++				return nil, err
++			}
++			err = ruleSet.reloadRules(rules)
++			if err != nil {
++				return nil, err
++			}
++			return ruleSet, nil
++		}
++		if strings.HasPrefix(options.LocalOptions.Path, "geosite:") {
++			rules, err := nekoutils.GetGeoSiteHeadlessRules(strings.TrimPrefix(options.LocalOptions.Path, "geosite:"))
++			if err != nil {
++				return nil, err
++			}
++			err = ruleSet.reloadRules(rules)
++			if err != nil {
++				return nil, err
++			}
++			return ruleSet, nil
++		}
+ 		filePath := filemanager.BasePath(ctx, strings.ReplaceAll(options.LocalOptions.Path, C.RuleSetTagPlaceholder, tag))
+ 		filePath, _ = filepath.Abs(filePath)
+ 		err := ruleSet.reloadFile(filePath)

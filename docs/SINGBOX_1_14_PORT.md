@@ -1,0 +1,140 @@
+# NekoBox SB: sing-box 1.14.4
+
+02.11.2026. Этап 1: сохранение интерфейса и функций NekoBox при обновлении ядра.
+Xray/XHTTP в Android-клиенте — следующий этап. Это alpha, не завершённая приёмка
+на устройстве. Проверяемый телефон владельца: TECNO KL7, Android14 (со слов владельца).
+
+## Исходники и версии
+
+| Компонент | Закреплённый источник |
+|---|---|
+| NekoBox baseline | `5768494d8ae3c74a057bb6d46c0f8dc071b0d821`, upstream1.4.2 |
+| sing-box | `c005f35300ce76427dc285481ec5695f5b179cd2`, upstream v1.14.4 |
+| libneko | `1c47a3af71990a7b2192e03292b4d246c308ef0b` |
+| gomobile | `17d6af34f6bd6d7e1e428e0c652c8b54a46bda4f`, MatsuriDayo fork |
+| Проверенная локальная сборка | Go1.25.5, JDK21, SDK35, build-tools35.0.1, NDK28.2.13676358 |
+| Runtime label | `1.14.4-neko.1` — не немодифицированное upstream ядро |
+| Android package | `io.github.silikonoff.nekobox`, debug suffix `.debug` |
+
+`buildScript/lib/core/get_source_env.sh` фиксирует коммиты зависимостей.
+`buildScript/patches/nekobox-core.patch` применяется поверх чистого upstream1.14.4.
+Необходимые дополнения исходного Neko сохранены отдельным патчем, а не скрытой
+зависимостью от плавающей ветки ядра. GPL notices и оригинальные AUTHORS сохранены.
+
+## Что переносится
+
+- Kotlin/Java интерфейс, БД, импорт/экспорт, группы, подписки, цепочки и редакторы
+  протоколов сохраняются. Перезаписи пользовательской БД при переносе не требуется.
+- Слой `libcore/configcompat` преобразует прежний JSON только при запуске ядра.
+  Сохранённый профиль и текст подписки остаются исходными. Неизвестные поля
+  передаются настоящему парсеру ядра, который выдаёт ошибку, если они не поддержаны.
+- Прежний DNS формат преобразуется в typed servers; сохраняются путь remote DNS
+  через proxy, bootstrap/direct DNS, стратегии IP, FakeIP и predefined blocking.
+  `outbound:any` bootstrap переносится в `default_domain_resolver`.
+- WireGuard outbound преобразуется в endpoint, с сохранением tag, detour, адресов,
+  ключей, reserved и peer routes. Встроенный WireGuard не удалён.
+- TUN адреса объединяются; legacy sniff/resolve и UDP domain unmapping становятся
+  предварительными route actions с сохранением порядка. Для прежней настройки
+  sniff-and-override в патче добавлен соответствующий параметр sniff action.
+- Перенесены Android platform API, асинхронный local DNS, connection-owner lookup,
+  статистика TCP/UDP/нового TUN flow path и selector callback.
+- GeoIP/Geosite pseudo paths и загрузка прежних баз сохранены. Старый unsafe gVisor
+  shutdown workaround не переносится: в новой sing-tun уже есть корректный
+  `Attach(nil)` и закрытие stack, подтверждённые чтением исходников.
+- Приложение называется NekoBox SB и использует отдельный package для совместной
+  установки с исходным клиентом. Ссылки проверки обновлений направлены на fork.
+- Синяя тема выбрана по умолчанию, выбор другого цвета сохранён. Новая иконка:
+  синий щит с белой N, включая adaptive/monochrome Android13+ и fallback Android21+.
+  Launcher shortcuts получают package соответствующего build variant; reset
+  notification направляется только своему package.
+- Сброс активных соединений перенесён на `Network().ResetNetwork()`: метод Router
+  очищает только кеши. Закрытие настоящего TCP-потока проверено отдельным тестом.
+
+## REALITY и актуальный Xray
+
+В исходном sing-box1.14.4 REALITY удаляет `X25519MLKEM768` из curves/key shares.
+В REALITY, используемом Xray26.10.31, ClientHello без этой hybrid key share
+отклоняется. Поэтому одной смены номера sing-box для такой совместимости мало.
+
+В патче сохраняется hybrid key share выбранного fingerprint и используется
+`MlkemEcdhe`, если отдельный ECDHE key отсутствует, согласно алгоритму клиента Xray.
+Проверка подлинности REALITY сохраняется; проверки сертификатов не отключаются.
+Заявленная проверенная комбинация: `fp=chrome`, RAW/TCP + REALITY + Vision.
+
+Первоисточники:
+
+- [sing-box1.14.4 REALITY client](https://github.com/SagerNet/sing-box/blob/v1.14.4/common/tls/reality_client.go)
+- [Xray26.10.31 client](https://github.com/XTLS/Xray-core/blob/v26.10.31/transport/internet/reality/reality.go)
+- [REALITY server check at pinned commit](https://github.com/XTLS/REALITY/blob/83f621788ca8/tls.go#L203)
+
+На изолированном localhost стенде проверены подлинность outer REALITY и HTTPS
+POST/echo через Vision с точным совпадением110592 байт. Серверы: Xray26.10.31
+и26.2.6. Приватный ключ стенда генерируется в памяти, server JSON передаётся stdin.
+Для localhost echo в тестовом Xray явно разрешён только127.0.0.1/32, поскольку
+новый freedom по умолчанию блокирует private targets. Рабочие серверы не менялись.
+Этот результат не является live-приёмкой телефона или доказательством причины
+прежнего инцидента на пользовательском VPS.
+
+## Native Windows сборка
+
+Не требуется WSL/Git Bash. Нужны native Git, PowerShell7, Go1.25.5, JDK21 и SDK35
+с build-tools35.0.1/NDK28.2.13676358. Пути ниже — пример; использовать свою установку.
+
+```powershell
+./buildScript/windows/Build-Android.ps1 `
+  -SdkRoot 'C:\Android\Sdk' `
+  -JavaHome 'C:\Java\jdk-21' `
+  -Go 'C:\Go\bin\go.exe'
+```
+
+`Build-Libcore.ps1` закрепляет исходники, применяет патч и создаёт arm64 AAR.
+`Prepare-Assets.ps1` восстанавливает отсутствующие Geo/Yacd assets из upstream1.4.2
+APK с проверкой известного SHA256; существующие custom assets не перезаписывает.
+`Build-Android.ps1` собирает `OssDebug`. После отдельно проверенного AAR возможен
+`-SkipLibcore`. Кеши и временные файлы находятся в игнорируемом `.build`.
+
+Сборка arm64 не доказывает работу других ABI. Gradle upstream создаёт также пустые
+split APK для ABI, которых нет в AAR; использовать только arm64-v8a APK.
+Публичный release signing key не создавался: alpha APK имеет debug подпись.
+Для обновления установленного APK нужна та же подпись; сохранять локальный debug
+keystore, перед stable использовать отдельно подготовленный постоянный ключ.
+
+Существующие Linux GitHub workflows сохранены, Go закреплён, source script
+применяет тот же patch. Их выполнение и остальные ABI требуют отдельной проверки.
+
+## Проверки и границы
+
+Выполнены: baseline Go/libcore, baseline arm64 AAR/APK; compile нового libcore;
+Windows-тесты счётчиков и route/rule; преобразование synthetic профилей и decode
+их настоящим парсером1.14.4; localhost VLESS TCP/UDP; чтение bundled GeoIP/Geosite;
+REALITY/Vision HTTPS с двумя указанными Xray; чистое применение compatibility patch;
+PowerShell syntax и подготовка pinned sources.
+
+Дополнительные команды:
+
+```powershell
+cd libcore
+go test -tags 'with_gvisor,with_quic,with_wireguard,with_utls,with_clash_api' ./configcompat
+# Windows optional isolated Xray server test:
+$env:NEKO_XRAY_BINARY = 'C:\Tools\Xray\xray.exe'
+go test -count=1 -run TestXrayRealityVisionHTTPS -tags 'with_utls,with_quic,with_gvisor,with_wireguard,with_clash_api' ./configcompat
+```
+
+Не проверены: запуск/реальный VPN на TECNO; Wi-Fi↔mobile, sleep/Doze, reconnect,
+DNS/IPv6 leaks, per-app routing и always-on/lockdown на Android; действующие
+пользовательские подписки/серверы; WireGuard/SS/Hysteria/TUIC/plugin live traffic;
+физическое16KB Android-устройство и прочие ABI. Новые Xray-specific VLESS encryption
+и ML-DSA certificate extensions не являются заявленной функцией этого этапа.
+
+## Приёмка на телефоне
+
+1. Экспортировать резервную копию профилей из обычного NekoBox; установить SB рядом.
+2. Импортировать копию, проверить группы, правила и обновление подписок.
+3. Проверить реальный HTTPS upload/download через прежний VLESS/REALITY/Vision
+   профиль и новый серверный Xray. Проверить внешний IP/DNS/IPv6 по выбранной политике.
+4. Проверить direct/block/domain/per-app rules и FakeDNS; остальные используемые
+   протоколы отдельно. Статус connected без трафика не считается PASS.
+5. Проверить смену сети, screen-off и повторное подключение. До этих результатов
+   alpha не заменяет рабочий клиент. Откат: открыть исходный NekoBox с его прежней БД.
+
+Следующий этап после приёмки: отдельная интеграция Xray для XHTTP.
