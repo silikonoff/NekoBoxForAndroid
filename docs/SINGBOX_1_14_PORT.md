@@ -228,3 +228,7 @@ ARM64 APK25692269bytes, подпись прежняя, ZIP/ELF16KiB, SO=AAR, ass
 SHA256: `cdac847a32ceaa7e87ec0849e82d1c245d47845a44e9c2313d6c457958b296cd`.
 Эти результаты не являются runtime-приёмкой на ARM64 TECNO и не подтверждают
 гипотезу о фильтрации его ClientHello. Alpha3 остаётся кандидатом для проверки.
+
+Продолжение: на физическом TECNO текущий профиль принят с `fp=edge`, включая
+независимый DNS+HTTPS через VPN/NL. Chrome остаётся failing в полном VPN;
+это не глобальная замена fingerprint. [Проверки и ограничение](TECNO_REALITY_COMPATIBILITY.md).
