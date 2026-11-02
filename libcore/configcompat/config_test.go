@@ -43,6 +43,27 @@ func TestRealityTCPCompatibilityPreservesExplicitAndOtherTransports(t *testing.T
 	}
 }
 
+func TestRealityChromeCompatibilityKeepsFingerprintAndExplicitPolicy(t *testing.T) {
+	for _, test := range []struct {
+		extra   string
+		enabled bool
+	}{
+		{``, true}, {`,"legacy_chrome_fallback":false`, false},
+	} {
+		m := normalized(t, `{"outbounds":[{"type":"vless","tls":{"enabled":true,"utls":{"enabled":true,"fingerprint":"chrome"},"reality":{"enabled":true`+test.extra+`}}}]}`)
+		tls := obj(obj(list(m["outbounds"])[0])["tls"])
+		if obj(tls["utls"])["fingerprint"] != "chrome" || obj(tls["reality"])["legacy_chrome_fallback"] != test.enabled {
+			t.Fatal("fingerprint or explicit policy changed")
+		}
+	}
+	for _, transport := range []string{`"type":"trojan",`, `"type":"vless","transport":{"type":"ws"},`} {
+		m := normalized(t, `{"outbounds":[{`+transport+`"tls":{"enabled":true,"utls":{"enabled":true,"fingerprint":"chrome"},"reality":{"enabled":true}}}]}`)
+		if obj(obj(obj(list(m["outbounds"])[0])["tls"])["reality"])["legacy_chrome_fallback"] != nil {
+			t.Fatal("unrelated transport changed")
+		}
+	}
+}
+
 func TestLegacyDNSPreservesProxyAndBootstrapPaths(t *testing.T) {
 	m := normalized(t, `{"route":{"final":"proxy"},"outbounds":[{"type":"vless","tag":"proxy"},{"type":"direct","tag":"direct"}],"dns":{"final":"dns-remote","servers":[{"tag":"dns-local","address":"local","detour":"direct"},{"tag":"dns-direct","address":"https://resolver.example/dns-query","detour":"direct","address_resolver":"dns-local","strategy":"prefer_ipv4"},{"tag":"dns-remote","address":"tls://1.1.1.1","address_resolver":"dns-direct"}],"rules":[{"outbound":["any"],"server":"dns-direct"},{"domain_suffix":["example.org"],"server":"dns-direct"}]}}`)
 	d := obj(m["dns"])

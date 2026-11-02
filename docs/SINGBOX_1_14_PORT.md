@@ -2,7 +2,8 @@
 
 02.11.2026. Этап 1: сохранение интерфейса и функций NekoBox при обновлении ядра.
 Xray/XHTTP в Android-клиенте — следующий этап. Это alpha, не завершённая приёмка
-на устройстве. Проверяемый телефон владельца: TECNO KL7, Android14 (со слов владельца).
+всех функций на устройстве. TECNO KL7/Android14 проверен непосредственно по USB;
+Chrome REALITY acceptance: [alpha4 compatibility](CHROME_COMPATIBILITY_ALPHA4.md).
 
 ## Исходники и версии
 
@@ -13,7 +14,7 @@ Xray/XHTTP в Android-клиенте — следующий этап. Это alp
 | libneko | `1c47a3af71990a7b2192e03292b4d246c308ef0b` |
 | gomobile | `17d6af34f6bd6d7e1e428e0c652c8b54a46bda4f`, MatsuriDayo fork |
 | Проверенная локальная сборка | Go1.25.5, JDK21, SDK35, build-tools35.0.1, NDK28.2.13676358 |
-| Runtime label | `1.14.4-neko.1` — не немодифицированное upstream ядро |
+| Runtime label | `1.14.4-neko.3` — не немодифицированное upstream ядро |
 | Android package | `io.github.silikonoff.nekobox`, debug suffix `.debug` |
 
 `buildScript/lib/core/get_source_env.sh` фиксирует коммиты зависимостей.

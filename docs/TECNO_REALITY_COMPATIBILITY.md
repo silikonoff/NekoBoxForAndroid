@@ -1,5 +1,9 @@
 # TECNO KL7 / Android 14: совместимость текущего профиля
 
+Обновление alpha4: автоматическая совместимость Chrome реализована в ядре;
+ручная смена fingerprint на Edge больше не является предлагаемым решением.
+[Механизм и проверки](CHROME_COMPATIBILITY_ALPHA4.md). Ниже сохранён этап alpha3.
+
 02.11.2026. ARM64 APK alpha3/version245, sing-box1.14.4-neko.2.
 
 Физический телефон, тот же VLESS TCP/REALITY/Vision профиль:

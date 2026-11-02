@@ -18,6 +18,7 @@ import (
 	"os"
 	"os/exec"
 	"strings"
+	"sync"
 	"syscall"
 	"testing"
 	"time"
@@ -49,6 +50,15 @@ func TestXrayRealityVisionHTTPS(t *testing.T) {
 	}
 	privateKey := base64.RawURLEncoding.EncodeToString(key.Bytes())
 	publicKey := base64.RawURLEncoding.EncodeToString(key.PublicKey().Bytes())
+	negativeKey := os.Getenv("NEKO_REALITY_WRONG_KEY") == "1"
+	strict := os.Getenv("NEKO_REALITY_STRICT") == "1"
+	if negativeKey {
+		other, err := ecdh.X25519().GenerateKey(rand.Reader)
+		if err != nil {
+			t.Fatal(err)
+		}
+		publicKey = base64.RawURLEncoding.EncodeToString(other.PublicKey().Bytes())
+	}
 	fallback := httptest.NewUnstartedServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) { w.WriteHeader(200) }))
 	fallback.EnableHTTP2 = true
 	fallback.Config.ErrorLog = log.New(io.Discard, "", 0)
@@ -119,10 +129,42 @@ func TestXrayRealityVisionHTTPS(t *testing.T) {
 	dnsRegistry := boxdns.NewTransportRegistry()
 	local.RegisterTransport(dnsRegistry)
 	ctx := box.Context(context.Background(), inbound.NewRegistry(), outs, endpoint.NewRegistry(), dnsRegistry, service.NewRegistry(), certificate.NewRegistry())
+	if os.Getenv("NEKO_REALITY_CLASSIC_PATH") == "1" {
+		proxyPort, modern, legacy := legacyChromeTestProxy(t, port)
+		port = proxyPort
+		defer func() {
+			if strict {
+				if modern.Load() < 2 || legacy.Load() != 0 {
+					t.Errorf("strict policy changed: modern=%d legacy=%d", modern.Load(), legacy.Load())
+				}
+				return
+			}
+			if negativeKey {
+				if modern.Load() < 2 || legacy.Load() < 2 {
+					t.Errorf("unauthenticated mode was cached: modern=%d legacy=%d", modern.Load(), legacy.Load())
+				}
+				return
+			}
+			if modern.Load() != 1 || legacy.Load() < 2 {
+				t.Errorf("compatibility discovery/cache failed: modern=%d legacy=%d", modern.Load(), legacy.Load())
+			}
+		}()
+	}
 	clientJSON := fmt.Sprintf(`{"log":{"disabled":true},"outbounds":[{"type":"vless","tag":"proxy","server":"127.0.0.1","server_port":%d,"uuid":%q,"flow":"xtls-rprx-vision","tls":{"enabled":true,"server_name":"example.org","utls":{"enabled":true,"fingerprint":"chrome"},"reality":{"enabled":true,"public_key":%q,"short_id":"0123456789abcdef"}}}],"route":{"final":"proxy"}}`, port, uuid, publicKey)
 	normalized, err := Normalize([]byte(clientJSON))
 	if err != nil {
 		t.Fatal(err)
+	}
+	if strict {
+		var m object
+		if err = json.Unmarshal(normalized, &m); err != nil {
+			t.Fatal(err)
+		}
+		obj(obj(obj(list(m["outbounds"])[0])["tls"])["reality"])["legacy_chrome_fallback"] = false
+		normalized, err = json.Marshal(m)
+		if err != nil {
+			t.Fatal(err)
+		}
 	}
 	var opts option.Options
 	if err = opts.UnmarshalJSONContext(ctx, normalized); err != nil {
@@ -135,6 +177,21 @@ func TestXrayRealityVisionHTTPS(t *testing.T) {
 	defer client.Close()
 	if err = client.Start(); err != nil {
 		t.Fatal(err)
+	}
+	if strict || negativeKey {
+		for attempt := 0; attempt < 2; attempt++ {
+			testCtx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
+			conn, err := client.Outbound().Default().DialContext(testCtx, "tcp", M.ParseSocksaddr(fallback.Listener.Addr().String()))
+			cancel()
+			if conn != nil {
+				conn.Close()
+			}
+			if err == nil {
+				t.Fatal("negative authentication/policy control unexpectedly connected")
+			}
+		}
+		t.Log("negative authentication/policy control rejected twice without learning legacy mode")
+		return
 	}
 	probe, err := client.Outbound().Default().DialContext(context.Background(), "tcp", M.ParseSocksaddr(fallback.Listener.Addr().String()))
 	if err != nil {
@@ -180,4 +237,33 @@ func TestXrayRealityVisionHTTPS(t *testing.T) {
 		t.Fatalf("HTTPS payload mismatch: got %d bytes, error %v", len(body), err)
 	}
 	t.Logf("HTTPS upload/download matched %d bytes", len(payload))
+	// Multiple fresh authenticated connections must keep working after discovery.
+	var parallel sync.WaitGroup
+	failures := make(chan error, 8)
+	for index := 0; index < 8; index++ {
+		parallel.Add(1)
+		go func() {
+			defer parallel.Done()
+			transport := httpClient.Transport.(*http.Transport).Clone()
+			transport.DisableKeepAlives = true
+			defer transport.CloseIdleConnections()
+			c := &http.Client{Transport: transport, Timeout: 10 * time.Second}
+			r, err := c.Post(echo.URL, "application/octet-stream", bytes.NewReader(payload))
+			if err != nil {
+				failures <- err
+				return
+			}
+			defer r.Body.Close()
+			got, err := io.ReadAll(r.Body)
+			if err != nil || !bytes.Equal(got, payload) {
+				failures <- fmt.Errorf("parallel HTTPS payload mismatch")
+			}
+		}()
+	}
+	parallel.Wait()
+	close(failures)
+	for err := range failures {
+		t.Error(err)
+	}
+	t.Log("eight parallel HTTPS connections checked")
 }

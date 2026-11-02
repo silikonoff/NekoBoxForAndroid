@@ -54,6 +54,13 @@ func realityTCPCompatibility(config object) {
 		if tls["enabled"] != true || obj(tls["reality"])["enabled"] != true {
 			continue
 		}
+		fingerprint := str(obj(tls["utls"])["fingerprint"])
+		if fingerprint == "chrome" || fingerprint == "" {
+			reality := obj(tls["reality"])
+			if _, explicit := reality["legacy_chrome_fallback"]; !explicit {
+				reality["legacy_chrome_fallback"] = true
+			}
+		}
 		if _, explicit := tls["fragment"]; !explicit {
 			tls["fragment"] = true
 			if _, explicit := tls["fragment_fallback_delay"]; !explicit {

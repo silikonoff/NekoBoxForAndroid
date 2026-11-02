@@ -1,5 +1,5 @@
 diff --git a/box.go b/box.go
-index 3654fb65d1fd42a117f99f76c7f59cd93a8b4b33..cd338722d73504a5bd423640fec70797639b07c0 100644
+index 3654fb6..cd33872 100644
 --- a/box.go
 +++ b/box.go
 @@ -151,7 +151,7 @@ func New(options Options) (*Box, error) {
@@ -13,7 +13,7 @@ index 3654fb65d1fd42a117f99f76c7f59cd93a8b4b33..cd338722d73504a5bd423640fec70797
  	if experimentalOptions.ClashAPI != nil {
 diff --git a/boxapi/go_http.go b/boxapi/go_http.go
 new file mode 100644
-index 0000000000000000000000000000000000000000..3cba5ebce8358829e64c6e8d3e399b3cdb9b0ac8
+index 0000000..3cba5eb
 --- /dev/null
 +++ b/boxapi/go_http.go
 @@ -0,0 +1,30 @@
@@ -49,7 +49,7 @@ index 0000000000000000000000000000000000000000..3cba5ebce8358829e64c6e8d3e399b3c
 +}
 diff --git a/boxapi/go_net.go b/boxapi/go_net.go
 new file mode 100644
-index 0000000000000000000000000000000000000000..5a7637d1d7c5e0273d4cc2a97a22f26c2b8fedca
+index 0000000..5a7637d
 --- /dev/null
 +++ b/boxapi/go_net.go
 @@ -0,0 +1,23 @@
@@ -78,7 +78,7 @@ index 0000000000000000000000000000000000000000..5a7637d1d7c5e0273d4cc2a97a22f26c
 +}
 diff --git a/boxapi/v2ray_server.go b/boxapi/v2ray_server.go
 new file mode 100644
-index 0000000000000000000000000000000000000000..a97e0af5cc26eba8ae55044f113eac1048afc469
+index 0000000..a97e0af
 --- /dev/null
 +++ b/boxapi/v2ray_server.go
 @@ -0,0 +1,32 @@
@@ -116,7 +116,7 @@ index 0000000000000000000000000000000000000000..a97e0af5cc26eba8ae55044f113eac10
 +}
 diff --git a/boxapi/v2ray_stats_service.go b/boxapi/v2ray_stats_service.go
 new file mode 100644
-index 0000000000000000000000000000000000000000..c31095833ebd5188112f8aff4eaf47cb41396187
+index 0000000..c310958
 --- /dev/null
 +++ b/boxapi/v2ray_stats_service.go
 @@ -0,0 +1,205 @@
@@ -327,7 +327,7 @@ index 0000000000000000000000000000000000000000..c31095833ebd5188112f8aff4eaf47cb
 +}
 diff --git a/boxapi/v2ray_stats_service_test.go b/boxapi/v2ray_stats_service_test.go
 new file mode 100644
-index 0000000000000000000000000000000000000000..c42c2951941efbc10508df2e70ad30d1f7c9c3b8
+index 0000000..c42c295
 --- /dev/null
 +++ b/boxapi/v2ray_stats_service_test.go
 @@ -0,0 +1,57 @@
@@ -389,7 +389,7 @@ index 0000000000000000000000000000000000000000..c42c2951941efbc10508df2e70ad30d1
 +	}
 +}
 diff --git a/common/dialer/default.go b/common/dialer/default.go
-index 75fac2f3d3d73530c2a075dcb38be5be355cb8fb..e55dda0c09bce2c1667f7eafd0096c9fbc065e31 100644
+index 75fac2f..e55dda0 100644
 --- a/common/dialer/default.go
 +++ b/common/dialer/default.go
 @@ -25,6 +25,9 @@ import (
@@ -420,8 +420,24 @@ index 75fac2f3d3d73530c2a075dcb38be5be355cb8fb..e55dda0c09bce2c1667f7eafd0096c9f
  		packetConn, err := listener.ListenNetworkNamespace[net.PacketConn](ctx, d.netns, func() (net.PacketConn, error) {
  			listenConfig := d.udpListener
  			if d.autoDetectBindFunc != nil {
+diff --git a/common/tls/client.go b/common/tls/client.go
+index 7b30368..84bbf86 100644
+--- a/common/tls/client.go
++++ b/common/tls/client.go
+@@ -152,6 +152,11 @@ func (d *defaultDialer) DialTLSContext(ctx context.Context, destination M.Socksa
+ }
+ 
+ func (d *defaultDialer) dialContext(ctx context.Context, destination M.Socksaddr, echRetry bool) (Conn, error) {
++	if config, ok := d.config.(interface {
++		dialWithCompatibility(context.Context, N.Dialer, M.Socksaddr) (Conn, error)
++	}); ok {
++		return config.dialWithCompatibility(ctx, d.dialer, destination)
++	}
+ 	conn, err := d.dialer.DialContext(ctx, N.NetworkTCP, destination)
+ 	if err != nil {
+ 		return nil, err
 diff --git a/common/tls/reality_client.go b/common/tls/reality_client.go
-index be4806fe67c132bd5e09839d770dadf52f038412..076d52f029a4d472ae439f6036c4a62db11ca5fe 100644
+index be4806f..abf3a46 100644
 --- a/common/tls/reality_client.go
 +++ b/common/tls/reality_client.go
 @@ -28,9 +28,9 @@ import (
@@ -435,7 +451,37 @@ index be4806fe67c132bd5e09839d770dadf52f038412..076d52f029a4d472ae439f6036c4a62d
  	"github.com/sagernet/sing/common/debug"
  	E "github.com/sagernet/sing/common/exceptions"
  	"github.com/sagernet/sing/common/logger"
-@@ -133,6 +133,12 @@ func (e *RealityClientConfig) Client(conn net.Conn) (Conn, error) {
+@@ -46,10 +46,12 @@ import (
+ var _ ConfigCompat = (*RealityClientConfig)(nil)
+ 
+ type RealityClientConfig struct {
+-	ctx       context.Context
+-	uClient   *UTLSClientConfig
+-	publicKey []byte
+-	shortID   [8]byte
++	ctx                 context.Context
++	uClient             *UTLSClientConfig
++	publicKey           []byte
++	shortID             [8]byte
++	legacyChrome        bool
++	chromeCompatibility *realityChromeCompatibility
+ }
+ 
+ func NewRealityClient(ctx context.Context, logger logger.ContextLogger, serverAddress string, options option.OutboundTLSOptions) (Config, error) {
+@@ -85,7 +87,11 @@ func newRealityClient(ctx context.Context, logger logger.ContextLogger, serverAd
+ 		return nil, E.New("invalid short_id")
+ 	}
+ 
+-	var config Config = &RealityClientConfig{ctx, uClient.(*UTLSClientConfig), publicKey, shortID}
++	realityConfig := &RealityClientConfig{ctx: ctx, uClient: uClient.(*UTLSClientConfig), publicKey: publicKey, shortID: shortID}
++	if options.Reality.LegacyChromeFallback && realityConfig.uClient.id == utls.HelloChrome_Auto {
++		realityConfig.chromeCompatibility = &realityChromeCompatibility{gate: make(chan struct{}, 1)}
++	}
++	var config Config = realityConfig
+ 	if options.KernelRx || options.KernelTx {
+ 		if !C.IsLinux {
+ 			return nil, E.New("kTLS is only supported on Linux")
+@@ -133,6 +139,12 @@ func (e *RealityClientConfig) Client(conn net.Conn) (Conn, error) {
  }
  
  func (e *RealityClientConfig) ClientHandshake(ctx context.Context, conn net.Conn) (aTLS.Conn, error) {
@@ -448,7 +494,7 @@ index be4806fe67c132bd5e09839d770dadf52f038412..076d52f029a4d472ae439f6036c4a62d
  	verifier := &realityVerifier{
  		serverName: e.uClient.ServerName(),
  	}
-@@ -146,18 +152,8 @@ func (e *RealityClientConfig) ClientHandshake(ctx context.Context, conn net.Conn
+@@ -146,16 +158,28 @@ func (e *RealityClientConfig) ClientHandshake(ctx context.Context, conn net.Conn
  	if err != nil {
  		return nil, err
  	}
@@ -462,14 +508,32 @@ index be4806fe67c132bd5e09839d770dadf52f038412..076d52f029a4d472ae439f6036c4a62d
 -			ks.KeyShares = common.Filter(ks.KeyShares, func(share utls.KeyShare) bool {
 -				return share.Group != utls.X25519MLKEM768
 -			})
--		}
--	}
 +	// Preserve the fingerprint's hybrid key share. Current Xray REALITY rejects
 +	// ClientHellos without X25519MLKEM768 before the optional X25519 share.
++	if e.legacyChrome {
++		for _, extension := range uConn.Extensions {
++			switch extension := extension.(type) {
++			case *utls.SupportedCurvesExtension:
++				curves := extension.Curves[:0]
++				for _, curve := range extension.Curves {
++					if curve != utls.X25519MLKEM768 {
++						curves = append(curves, curve)
++					}
++				}
++				extension.Curves = curves
++			case *utls.KeyShareExtension:
++				shares := extension.KeyShares[:0]
++				for _, share := range extension.KeyShares {
++					if share.Group != utls.X25519MLKEM768 {
++						shares = append(shares, share)
++					}
++				}
++				extension.KeyShares = shares
++			}
+ 		}
+ 	}
  	err = uConn.BuildHandshakeState()
- 	if err != nil {
- 		return nil, err
-@@ -201,6 +197,9 @@ func (e *RealityClientConfig) ClientHandshake(ctx context.Context, conn net.Conn
+@@ -201,6 +225,9 @@ func (e *RealityClientConfig) ClientHandshake(ctx context.Context, conn net.Conn
  		return nil, E.New("nil KeyShareKeys")
  	}
  	ecdheKey := keyShareKeys.Ecdhe
@@ -479,9 +543,166 @@ index be4806fe67c132bd5e09839d770dadf52f038412..076d52f029a4d472ae439f6036c4a62d
  	if ecdheKey == nil {
  		return nil, E.New("nil ecdheKey")
  	}
+@@ -276,10 +303,12 @@ func realityClientFallback(ctx context.Context, uConn net.Conn, serverName strin
+ 
+ func (e *RealityClientConfig) Clone() Config {
+ 	return &RealityClientConfig{
+-		e.ctx,
+-		e.uClient.Clone().(*UTLSClientConfig),
+-		e.publicKey,
+-		e.shortID,
++		ctx:                 e.ctx,
++		uClient:             e.uClient.Clone().(*UTLSClientConfig),
++		publicKey:           e.publicKey,
++		shortID:             e.shortID,
++		legacyChrome:        e.legacyChrome,
++		chromeCompatibility: e.chromeCompatibility,
+ 	}
+ }
+ 
+diff --git a/common/tls/reality_compat.go b/common/tls/reality_compat.go
+new file mode 100644
+index 0000000..7c8acf6
+--- /dev/null
++++ b/common/tls/reality_compat.go
+@@ -0,0 +1,134 @@
++//go:build with_utls
++
++package tls
++
++import (
++	"context"
++	"sync/atomic"
++	"time"
++
++	M "github.com/sagernet/sing/common/metadata"
++	N "github.com/sagernet/sing/common/network"
++	aTLS "github.com/sagernet/sing/common/tls"
++)
++
++// Scoped to this outbound and its clones; never persisted in a profile.
++// 0 = untested, 1 = modern worked, 2 = authenticated legacy Chrome worked.
++type realityChromeCompatibility struct {
++	mode atomic.Uint32
++	gate chan struct{}
++}
++
++func (e *RealityClientConfig) dialWithCompatibility(ctx context.Context, dialer N.Dialer, destination M.Socksaddr) (Conn, error) {
++	policy := e.chromeCompatibility
++	if policy == nil {
++		return e.dialRealityAttempt(ctx, dialer, destination)
++	}
++	if timeout := e.HandshakeTimeout(); timeout > 0 {
++		var cancel context.CancelFunc
++		ctx, cancel = context.WithTimeout(ctx, timeout)
++		defer cancel()
++	}
++	if policy.mode.Load() == 0 {
++		select {
++		case policy.gate <- struct{}{}:
++			defer func() { <-policy.gate }()
++		case <-ctx.Done():
++			return nil, ctx.Err()
++		}
++	}
++	legacy := e.Clone().(*RealityClientConfig)
++	legacy.legacyChrome = true
++	if policy.mode.Load() == 2 {
++		conn, err := legacy.dialRealityAttempt(ctx, dialer, destination)
++		if err == nil || ctx.Err() != nil {
++			return conn, err
++		}
++		// A server may have been upgraded while this VPN session was running.
++		policy.mode.CompareAndSwap(2, 0)
++		return e.dialRealityAttempt(ctx, dialer, destination)
++	}
++	type result struct {
++		conn   Conn
++		err    error
++		legacy bool
++	}
++	attemptCtx, cancel := context.WithCancel(ctx)
++	results := make(chan result, 2)
++	started, received := 1, 0
++	start := func(config *RealityClientConfig) {
++		go func() {
++			conn, err := config.dialRealityAttempt(attemptCtx, dialer, destination)
++			results <- result{conn, err, config.legacyChrome}
++		}()
++	}
++	defer func() {
++		cancel()
++		// Every attempt always sends once to the buffered channel, including
++		// cancellation. Dispose the losing socket even if it just authenticated.
++		pending := started - received
++		if pending > 0 {
++			go func() {
++				for i := 0; i < pending; i++ {
++					r := <-results
++					if r.conn != nil {
++						r.conn.Close()
++					}
++				}
++			}()
++		}
++	}()
++	start(e)
++	timer := time.NewTimer(time.Second)
++	defer timer.Stop()
++	timerC := timer.C
++	startLegacy := func() {
++		if started == 1 {
++			started++
++			start(legacy)
++		}
++		timerC = nil
++	}
++	for {
++		select {
++		case r := <-results:
++			received++
++			if r.err == nil {
++				// Both variants return only after the normal REALITY certificate
++				// MAC verification. TCP/TLS success alone never learns a mode.
++				if r.legacy {
++					policy.mode.Store(2)
++				} else {
++					policy.mode.CompareAndSwap(0, 1)
++				}
++				return r.conn, nil
++			}
++			if ctx.Err() != nil {
++				return nil, ctx.Err()
++			}
++			startLegacy()
++			if received == started {
++				return nil, r.err
++			}
++		case <-timerC:
++			// Keep the modern attempt alive: slow modern-only servers retain
++			// their original budget instead of restarting after a probe timeout.
++			startLegacy()
++		case <-ctx.Done():
++			return nil, ctx.Err()
++		}
++	}
++}
++
++func (e *RealityClientConfig) dialRealityAttempt(ctx context.Context, dialer N.Dialer, destination M.Socksaddr) (Conn, error) {
++	conn, err := dialer.DialContext(ctx, N.NetworkTCP, destination)
++	if err != nil {
++		return nil, err
++	}
++	tlsConn, err := aTLS.ClientHandshake(ctx, conn, e)
++	if err != nil {
++		conn.Close()
++		return nil, err
++	}
++	return tlsConn, nil
++}
 diff --git a/nekoutils/callback.go b/nekoutils/callback.go
 new file mode 100644
-index 0000000000000000000000000000000000000000..97f5612360d8bc8152fefd36fabe6accfc252692
+index 0000000..97f5612
 --- /dev/null
 +++ b/nekoutils/callback.go
 @@ -0,0 +1,3 @@
@@ -490,7 +711,7 @@ index 0000000000000000000000000000000000000000..97f5612360d8bc8152fefd36fabe6acc
 +var Selector_OnProxySelected func(selectorTag string, tag string)
 diff --git a/nekoutils/srs.go b/nekoutils/srs.go
 new file mode 100644
-index 0000000000000000000000000000000000000000..a86df58a775ffffba5c79286e9423aa56d6e5afd
+index 0000000..a86df58
 --- /dev/null
 +++ b/nekoutils/srs.go
 @@ -0,0 +1,7 @@
@@ -502,7 +723,7 @@ index 0000000000000000000000000000000000000000..a86df58a775ffffba5c79286e9423aa5
 +
 +var GetGeoSiteHeadlessRules func(name string) ([]option.HeadlessRule, error)
 diff --git a/option/rule_action.go b/option/rule_action.go
-index 33ddd2bdc823d8a3ea9a1954e9e51f723ae6447b..8504a4cf8fce46b4d21249fd1a459f0a47ca14bb 100644
+index 33ddd2b..8504a4c 100644
 --- a/option/rule_action.go
 +++ b/option/rule_action.go
 @@ -267,8 +267,10 @@ func (r *RejectActionOptions) UnmarshalJSON(bytes []byte) error {
@@ -518,8 +739,24 @@ index 33ddd2bdc823d8a3ea9a1954e9e51f723ae6447b..8504a4cf8fce46b4d21249fd1a459f0a
  }
  
  type RouteActionResolve struct {
+diff --git a/option/tls.go b/option/tls.go
+index 5c807d6..0e25648 100644
+--- a/option/tls.go
++++ b/option/tls.go
+@@ -250,7 +250,8 @@ type OutboundUTLSOptions struct {
+ }
+ 
+ type OutboundRealityOptions struct {
+-	Enabled   bool   `json:"enabled,omitempty"`
+-	PublicKey string `json:"public_key,omitempty"`
+-	ShortID   string `json:"short_id,omitempty"`
++	Enabled              bool   `json:"enabled,omitempty"`
++	PublicKey            string `json:"public_key,omitempty"`
++	ShortID              string `json:"short_id,omitempty"`
++	LegacyChromeFallback bool   `json:"legacy_chrome_fallback,omitempty"`
+ }
 diff --git a/protocol/group/selector.go b/protocol/group/selector.go
-index 5780fc2c25da0d4d574ea49913ddb7f2de32438a..ba4f521a39f15e11f22911645f21629c274ef1e1 100644
+index 5780fc2..ba4f521 100644
 --- a/protocol/group/selector.go
 +++ b/protocol/group/selector.go
 @@ -12,6 +12,7 @@ import (
@@ -541,7 +778,7 @@ index 5780fc2c25da0d4d574ea49913ddb7f2de32438a..ba4f521a39f15e11f22911645f21629c
  		s.history.NotifyUpdated()
  	}
 diff --git a/protocol/vless/outbound.go b/protocol/vless/outbound.go
-index c0ece0a2d831a879a52129cebab6db8e9b7d1784..3c290155e735ae8bec885763fd1526d6c7ea747d 100644
+index c0ece0a..3c29015 100644
 --- a/protocol/vless/outbound.go
 +++ b/protocol/vless/outbound.go
 @@ -92,11 +92,15 @@ func NewOutbound(ctx context.Context, router adapter.Router, logger log.ContextL
@@ -562,7 +799,7 @@ index c0ece0a2d831a879a52129cebab6db8e9b7d1784..3c290155e735ae8bec885763fd1526d6
  		return nil, err
  	}
 diff --git a/route/rule/rule_action.go b/route/rule/rule_action.go
-index 6fd1707accd9fa9f07d959a0f3fa0aa8a3e7a5cc..a464e8501d8c141adc41a34f22e43f86284213c3 100644
+index 6fd1707..a464e85 100644
 --- a/route/rule/rule_action.go
 +++ b/route/rule/rule_action.go
 @@ -81,8 +81,9 @@ func NewRuleAction(logger logger.ContextLogger, action option.RuleAction) (adapt
@@ -578,7 +815,7 @@ index 6fd1707accd9fa9f07d959a0f3fa0aa8a3e7a5cc..a464e8501d8c141adc41a34f22e43f86
  		return sniffAction, sniffAction.build()
  	case C.RuleActionTypeResolve:
 diff --git a/route/rule/rule_set_local.go b/route/rule/rule_set_local.go
-index 9d5d21e83e4ba95e6f5e7248db7639bc63a667f4..4656d25c1b4cb75638fc75a5724be0c7bd3b654e 100644
+index 9d5d21e..4656d25 100644
 --- a/route/rule/rule_set_local.go
 +++ b/route/rule/rule_set_local.go
 @@ -11,6 +11,7 @@ import (

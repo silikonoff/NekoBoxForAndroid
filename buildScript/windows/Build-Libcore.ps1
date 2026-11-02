@@ -70,7 +70,7 @@ $output = Join-Path $repo 'app\libs\libcore.aar'
 New-Item -ItemType Directory -Force (Split-Path $output) | Out-Null
 Push-Location (Join-Path $repo 'libcore')
 try {
-    & $gomobile bind -target $Target -androidapi 21 -o $output -trimpath -ldflags '-s -w -X github.com/sagernet/sing-box/constant.Version=1.14.4-neko.2' -tags 'with_gvisor,with_quic,with_wireguard,with_utls,with_clash_api' .
+    & $gomobile bind -target $Target -androidapi 21 -o $output -trimpath -ldflags '-s -w -X github.com/sagernet/sing-box/constant.Version=1.14.4-neko.3' -tags 'with_gvisor,with_quic,with_wireguard,with_utls,with_clash_api' .
     if ($LASTEXITCODE) { throw 'libcore AAR build failed' }
 } finally { Pop-Location }
 Get-FileHash -LiteralPath $output -Algorithm SHA256
