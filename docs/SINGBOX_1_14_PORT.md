@@ -104,6 +104,18 @@ keystore, перед stable использовать отдельно подго
 
 ## Проверки и границы
 
+Финальный `OssDebug` arm64 APK собран02.11.2026. Подпись v1/v2 проверена
+`apksigner verify`; `zipalign -c -P 16 4` PASS. В APK ровно одна native library,
+arm64 libgojni.so, побайтно совпадающая с финальным AAR. Runtime label
+`1.14.4-neko.1`, все четыре ELF PT_LOAD align16384. Bundled Geo/Yacd assets
+присутствуют; package, версия, все локализованные labels `NekoBox SB`, variant
+shortcut resource и launcher21/26/33 проверены в готовом APK.
+Это статические проверки, не runtime-приёмка16KB/Android.
+
+APK: `NekoBox-SB-1.4.3-sb1.14.4-alpha1-arm64-v8a.apk`.
+SHA256: `9c68302466e65d97bf8c477fa3209698053939fd4197993070b7dd1a8c44ca78`.
+Исходники и обсуждение: [draft PR1](https://github.com/silikonoff/NekoBoxForAndroid/pull/1).
+
 Выполнены: baseline Go/libcore, baseline arm64 AAR/APK; compile нового libcore;
 Windows-тесты счётчиков и route/rule; преобразование synthetic профилей и decode
 их настоящим парсером1.14.4; localhost VLESS TCP/UDP; чтение bundled GeoIP/Geosite;
