@@ -9,7 +9,7 @@ $ErrorActionPreference = 'Stop'
 $repo = [IO.Path]::GetFullPath((Join-Path $PSScriptRoot '..\..'))
 $env:JAVA_HOME = (Resolve-Path -LiteralPath $JavaHome).Path
 $env:ANDROID_HOME = (Resolve-Path -LiteralPath $SdkRoot).Path
-$env:ANDROID_USER_HOME = Join-Path $repo '.build\android'
+if (!$env:ANDROID_USER_HOME) { $env:ANDROID_USER_HOME = Join-Path $repo '.build\android' }
 $env:GRADLE_USER_HOME = Join-Path $repo '.build\gradle'
 $env:Path = "$env:JAVA_HOME\bin;$env:Path"
 if (!$SkipLibcore) { & (Join-Path $PSScriptRoot 'Build-Libcore.ps1') -SdkRoot $SdkRoot -JavaHome $JavaHome -Go $Go }
