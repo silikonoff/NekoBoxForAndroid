@@ -129,8 +129,18 @@ func TestXrayRealityVisionHTTPS(t *testing.T) {
 	dnsRegistry := boxdns.NewTransportRegistry()
 	local.RegisterTransport(dnsRegistry)
 	ctx := box.Context(context.Background(), inbound.NewRegistry(), outs, endpoint.NewRegistry(), dnsRegistry, service.NewRegistry(), certificate.NewRegistry())
+	pathPolicy := ""
 	if os.Getenv("NEKO_REALITY_CLASSIC_PATH") == "1" {
-		proxyPort, modern, legacy := legacyChromeTestProxy(t, port)
+		pathPolicy = "legacy"
+	}
+	if os.Getenv("NEKO_REALITY_COMPACT_PATH") == "1" {
+		pathPolicy = "compact"
+	}
+	if os.Getenv("NEKO_REALITY_BROWSER_PATH") == "1" {
+		pathPolicy = "browser"
+	}
+	if pathPolicy != "" {
+		proxyPort, modern, legacy := helloVariantTestProxy(t, port, pathPolicy)
 		port = proxyPort
 		defer func() {
 			if strict {
@@ -145,7 +155,17 @@ func TestXrayRealityVisionHTTPS(t *testing.T) {
 				}
 				return
 			}
-			if modern.Load() != 1 || legacy.Load() < 2 {
+			if pathPolicy == "compact" {
+				if modern.Load() != 0 || legacy.Load() < 2 {
+					t.Errorf("compact discovery/cache failed: blocked=%d forwarded=%d", modern.Load(), legacy.Load())
+				}
+				return
+			}
+			expectedBlocked := int32(2)
+			if pathPolicy == "browser" {
+				expectedBlocked = 1
+			}
+			if modern.Load() != expectedBlocked || legacy.Load() < 2 {
 				t.Errorf("compatibility discovery/cache failed: modern=%d legacy=%d", modern.Load(), legacy.Load())
 			}
 		}()

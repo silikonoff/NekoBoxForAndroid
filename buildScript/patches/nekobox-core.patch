@@ -437,7 +437,7 @@ index 7b30368..84bbf86 100644
  	if err != nil {
  		return nil, err
 diff --git a/common/tls/reality_client.go b/common/tls/reality_client.go
-index be4806f..abf3a46 100644
+index be4806f..5bc6e43 100644
 --- a/common/tls/reality_client.go
 +++ b/common/tls/reality_client.go
 @@ -28,9 +28,9 @@ import (
@@ -451,7 +451,7 @@ index be4806f..abf3a46 100644
  	"github.com/sagernet/sing/common/debug"
  	E "github.com/sagernet/sing/common/exceptions"
  	"github.com/sagernet/sing/common/logger"
-@@ -46,10 +46,12 @@ import (
+@@ -46,10 +46,13 @@ import (
  var _ ConfigCompat = (*RealityClientConfig)(nil)
  
  type RealityClientConfig struct {
@@ -464,11 +464,12 @@ index be4806f..abf3a46 100644
 +	publicKey           []byte
 +	shortID             [8]byte
 +	legacyChrome        bool
++	compactChrome       bool
 +	chromeCompatibility *realityChromeCompatibility
  }
  
  func NewRealityClient(ctx context.Context, logger logger.ContextLogger, serverAddress string, options option.OutboundTLSOptions) (Config, error) {
-@@ -85,7 +87,11 @@ func newRealityClient(ctx context.Context, logger logger.ContextLogger, serverAd
+@@ -85,7 +88,11 @@ func newRealityClient(ctx context.Context, logger logger.ContextLogger, serverAd
  		return nil, E.New("invalid short_id")
  	}
  
@@ -481,7 +482,7 @@ index be4806f..abf3a46 100644
  	if options.KernelRx || options.KernelTx {
  		if !C.IsLinux {
  			return nil, E.New("kTLS is only supported on Linux")
-@@ -133,6 +139,12 @@ func (e *RealityClientConfig) Client(conn net.Conn) (Conn, error) {
+@@ -133,6 +140,12 @@ func (e *RealityClientConfig) Client(conn net.Conn) (Conn, error) {
  }
  
  func (e *RealityClientConfig) ClientHandshake(ctx context.Context, conn net.Conn) (aTLS.Conn, error) {
@@ -494,7 +495,23 @@ index be4806f..abf3a46 100644
  	verifier := &realityVerifier{
  		serverName: e.uClient.ServerName(),
  	}
-@@ -146,16 +158,28 @@ func (e *RealityClientConfig) ClientHandshake(ctx context.Context, conn net.Conn
+@@ -140,22 +153,43 @@ func (e *RealityClientConfig) ClientHandshake(ctx context.Context, conn net.Conn
+ 	uConfig.InsecureSkipVerify = true
+ 	uConfig.SessionTicketsDisabled = true
+ 	uConfig.VerifyPeerCertificate = verifier.VerifyPeerCertificate
+-	uConn := utls.UClient(conn, uConfig, e.uClient.id)
++	id := e.uClient.id
++	if e.compactChrome {
++		id = utls.HelloCustom
++	}
++	uConn := utls.UClient(conn, uConfig, id)
++	if e.compactChrome {
++		if err := uConn.ApplyPreset(realityCompactPreset()); err != nil {
++			return nil, err
++		}
++	}
+ 	verifier.UConn = uConn
+ 	err := uConn.BuildHandshakeState()
  	if err != nil {
  		return nil, err
  	}
@@ -533,7 +550,7 @@ index be4806f..abf3a46 100644
  		}
  	}
  	err = uConn.BuildHandshakeState()
-@@ -201,6 +225,9 @@ func (e *RealityClientConfig) ClientHandshake(ctx context.Context, conn net.Conn
+@@ -201,6 +235,9 @@ func (e *RealityClientConfig) ClientHandshake(ctx context.Context, conn net.Conn
  		return nil, E.New("nil KeyShareKeys")
  	}
  	ecdheKey := keyShareKeys.Ecdhe
@@ -543,7 +560,7 @@ index be4806f..abf3a46 100644
  	if ecdheKey == nil {
  		return nil, E.New("nil ecdheKey")
  	}
-@@ -276,10 +303,12 @@ func realityClientFallback(ctx context.Context, uConn net.Conn, serverName strin
+@@ -276,10 +313,13 @@ func realityClientFallback(ctx context.Context, uConn net.Conn, serverName strin
  
  func (e *RealityClientConfig) Clone() Config {
  	return &RealityClientConfig{
@@ -556,16 +573,17 @@ index be4806f..abf3a46 100644
 +		publicKey:           e.publicKey,
 +		shortID:             e.shortID,
 +		legacyChrome:        e.legacyChrome,
++		compactChrome:       e.compactChrome,
 +		chromeCompatibility: e.chromeCompatibility,
  	}
  }
  
 diff --git a/common/tls/reality_compat.go b/common/tls/reality_compat.go
 new file mode 100644
-index 0000000..7c8acf6
+index 0000000..7e2fa4d
 --- /dev/null
 +++ b/common/tls/reality_compat.go
-@@ -0,0 +1,134 @@
+@@ -0,0 +1,148 @@
 +//go:build with_utls
 +
 +package tls
@@ -581,7 +599,7 @@ index 0000000..7c8acf6
 +)
 +
 +// Scoped to this outbound and its clones; never persisted in a profile.
-+// 0 = untested, 1 = modern worked, 2 = authenticated legacy Chrome worked.
++// 0 = untested, 1 = browser Chrome, 2 = legacy Chrome, 3 = compact modern.
 +type realityChromeCompatibility struct {
 +	mode atomic.Uint32
 +	gate chan struct{}
@@ -605,29 +623,37 @@ index 0000000..7c8acf6
 +			return nil, ctx.Err()
 +		}
 +	}
-+	legacy := e.Clone().(*RealityClientConfig)
-+	legacy.legacyChrome = true
-+	if policy.mode.Load() == 2 {
-+		conn, err := legacy.dialRealityAttempt(ctx, dialer, destination)
-+		if err == nil || ctx.Err() != nil {
-+			return conn, err
++	// A large modern Chrome Hello can authenticate and still have subsequent
++	// bytes dropped on the network path. Prefer the compact modern variant for
++	// discovery; preserve the browser and legacy variants as authenticated
++	// fallbacks. Explicit legacy_chrome_fallback=false bypasses this policy.
++	preferred := policy.mode.Load()
++	if preferred == 0 {
++		preferred = 3
++	}
++	order := []uint32{preferred}
++	for _, mode := range []uint32{3, 1, 2} {
++		if mode != preferred {
++			order = append(order, mode)
 +		}
-+		// A server may have been upgraded while this VPN session was running.
-+		policy.mode.CompareAndSwap(2, 0)
-+		return e.dialRealityAttempt(ctx, dialer, destination)
 +	}
 +	type result struct {
-+		conn   Conn
-+		err    error
-+		legacy bool
++		conn Conn
++		err  error
++		mode uint32
 +	}
 +	attemptCtx, cancel := context.WithCancel(ctx)
-+	results := make(chan result, 2)
-+	started, received := 1, 0
-+	start := func(config *RealityClientConfig) {
++	results := make(chan result, len(order))
++	started, received := 0, 0
++	startNext := func() {
++		mode := order[started]
++		started++
++		config := e.Clone().(*RealityClientConfig)
++		config.legacyChrome = mode == 2
++		config.compactChrome = mode == 3
 +		go func() {
 +			conn, err := config.dialRealityAttempt(attemptCtx, dialer, destination)
-+			results <- result{conn, err, config.legacyChrome}
++			results <- result{conn, err, mode}
 +		}()
 +	}
 +	defer func() {
@@ -646,42 +672,48 @@ index 0000000..7c8acf6
 +			}()
 +		}
 +	}()
-+	start(e)
-+	timer := time.NewTimer(time.Second)
++	startNext()
++	timer := time.NewTimer(500 * time.Millisecond)
 +	defer timer.Stop()
 +	timerC := timer.C
-+	startLegacy := func() {
-+		if started == 1 {
-+			started++
-+			start(legacy)
++	advance := func() {
++		if started < len(order) {
++			startNext()
 +		}
-+		timerC = nil
++		if started < len(order) {
++			if !timer.Stop() {
++				select {
++				case <-timer.C:
++				default:
++				}
++			}
++			timer.Reset(500 * time.Millisecond)
++			timerC = timer.C
++		} else {
++			timerC = nil
++		}
 +	}
 +	for {
 +		select {
 +		case r := <-results:
 +			received++
 +			if r.err == nil {
-+				// Both variants return only after the normal REALITY certificate
++				// Every variant returns only after the normal REALITY certificate
 +				// MAC verification. TCP/TLS success alone never learns a mode.
-+				if r.legacy {
-+					policy.mode.Store(2)
-+				} else {
-+					policy.mode.CompareAndSwap(0, 1)
-+				}
++				policy.mode.Store(r.mode)
 +				return r.conn, nil
 +			}
 +			if ctx.Err() != nil {
 +				return nil, ctx.Err()
 +			}
-+			startLegacy()
-+			if received == started {
++			policy.mode.CompareAndSwap(r.mode, 0)
++			advance()
++			if received == len(order) {
 +				return nil, r.err
 +			}
 +		case <-timerC:
-+			// Keep the modern attempt alive: slow modern-only servers retain
-+			// their original budget instead of restarting after a probe timeout.
-+			startLegacy()
++			// Keep prior attempts alive within the original handshake budget.
++			advance()
 +		case <-ctx.Done():
 +			return nil, ctx.Err()
 +		}
@@ -855,3 +887,77 @@ index 9d5d21e..4656d25 100644
  		filePath := filemanager.BasePath(ctx, strings.ReplaceAll(options.LocalOptions.Path, C.RuleSetTagPlaceholder, tag))
  		filePath, _ = filepath.Abs(filePath)
  		err := ruleSet.reloadFile(filePath)
+diff --git a/common/tls/reality_compact.go b/common/tls/reality_compact.go
+new file mode 100644
+--- /dev/null
++++ b/common/tls/reality_compact.go
+@@ -0,0 +1,30 @@
++//go:build with_utls
++
++package tls
++
++import (
++	utls "github.com/metacubex/utls"
++)
++
++// Compact TLS 1.3 compatibility variant retains both modern REALITY key shares.
++// It is intentionally a compatibility Hello, not an exact browser fingerprint.
++func realityCompactPreset() *utls.ClientHelloSpec {
++	return &utls.ClientHelloSpec{
++		TLSVersMin:         utls.VersionTLS13,
++		TLSVersMax:         utls.VersionTLS13,
++		CipherSuites:       []uint16{utls.TLS_AES_128_GCM_SHA256, utls.TLS_AES_256_GCM_SHA384, utls.TLS_CHACHA20_POLY1305_SHA256},
++		CompressionMethods: []byte{0},
++		Extensions: []utls.TLSExtension{
++			&utls.SNIExtension{},
++			&utls.SupportedVersionsExtension{Versions: []uint16{utls.VersionTLS13}},
++			&utls.SupportedCurvesExtension{Curves: []utls.CurveID{utls.X25519MLKEM768, utls.X25519}},
++			&utls.KeyShareExtension{KeyShares: []utls.KeyShare{{Group: utls.X25519MLKEM768}, {Group: utls.X25519}}},
++			&utls.SignatureAlgorithmsExtension{SupportedSignatureAlgorithms: []utls.SignatureScheme{
++				utls.ECDSAWithP256AndSHA256, utls.PSSWithSHA256, utls.PKCS1WithSHA256,
++				utls.ECDSAWithP384AndSHA384, utls.PSSWithSHA384, utls.PKCS1WithSHA384,
++				utls.PSSWithSHA512, utls.PKCS1WithSHA512,
++			}},
++			&utls.ALPNExtension{AlpnProtocols: []string{"h2", "http/1.1"}},
++		},
++	}
++}
+diff --git a/common/tls/reality_compact_test.go b/common/tls/reality_compact_test.go
+new file mode 100644
+--- /dev/null
++++ b/common/tls/reality_compact_test.go
+@@ -0,0 +1,34 @@
++//go:build with_utls
++
++package tls
++
++import (
++	utls "github.com/metacubex/utls"
++	"net"
++	"testing"
++)
++
++func TestRealityCompactLayout(t *testing.T) {
++	a, b := net.Pipe()
++	defer a.Close()
++	defer b.Close()
++	c := utls.UClient(a, &utls.Config{ServerName: "abcdefghijklmnopqrstuv", MinVersion: utls.VersionTLS13}, utls.HelloCustom)
++	if err := c.ApplyPreset(realityCompactPreset()); err != nil {
++		t.Fatal(err)
++	}
++	if err := c.BuildHandshakeState(); err != nil {
++		t.Fatal(err)
++	}
++	h := c.HandshakeState.Hello
++	if got := len(h.Raw) + 5; got != 1438 {
++		t.Fatalf("TLS record bytes=%d, expected1438", got)
++	}
++	if len(h.KeyShares) != 2 || h.KeyShares[0].Group != utls.X25519MLKEM768 || len(h.KeyShares[0].Data) != 1216 || h.KeyShares[1].Group != utls.X25519 || len(h.KeyShares[1].Data) != 32 {
++		t.Fatal("both required shares/order must remain")
++	}
++	keys := c.HandshakeState.State13.KeyShareKeys
++	if keys == nil || keys.Ecdhe == nil || keys.MlkemEcdhe == nil {
++		t.Fatal("private authentication/TLS keys absent")
++	}
++	t.Log("compact TLS record1438B; hybrid1216 + X25519 share32; both private keys present")
++}

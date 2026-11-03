@@ -13,9 +13,9 @@ import (
 	"time"
 )
 
-// Controlled path compatibility fixture: silently discard hybrid ClientHellos,
-// forward the legacy Chrome hello to a real Xray server. No credentials/logs.
-func legacyChromeTestProxy(t *testing.T, serverPort int) (int, *atomic.Int32, *atomic.Int32) {
+// Controlled path: discard one Hello shape, forward allowed bytes unchanged to
+// a real Xray. Counts are blocked/forwarded; no credentials or payload logs.
+func helloVariantTestProxy(t *testing.T, serverPort int, policy string) (int, *atomic.Int32, *atomic.Int32) {
 	t.Helper()
 	listener, err := net.Listen("tcp", "127.0.0.1:0")
 	if err != nil {
@@ -59,7 +59,14 @@ func legacyChromeTestProxy(t *testing.T, serverPort int) (int, *atomic.Int32, *a
 					}
 				}
 				conn.SetReadDeadline(time.Time{})
-				if hybrid {
+				allowed := !hybrid
+				if policy == "compact" {
+					allowed = hybrid && len(record) <= 1448
+				}
+				if policy == "browser" {
+					allowed = hybrid && len(record) > 1448
+				}
+				if !allowed {
 					modern.Add(1)
 					io.Copy(io.Discard, conn)
 					return

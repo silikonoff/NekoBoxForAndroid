@@ -8,6 +8,7 @@ on upstream sing-box 1.14.4 with a small, versioned NekoBox compatibility patch.
 The development app uses a separate application ID and can coexist with NekoBox.
 
 [Build instructions, changes and acceptance status](docs/SINGBOX_1_14_PORT.md).
+[Automatic modern REALITY compatibility and its limits](docs/CHROME_COMPATIBILITY_ALPHA5.md).
 This is an alpha development branch; Android VPN traffic acceptance is still required.
 Original upstream documentation and attribution follow below.
 

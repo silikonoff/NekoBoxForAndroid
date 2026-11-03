@@ -41,9 +41,9 @@ func Normalize(input []byte) ([]byte, error) {
 	return json.Marshal(config)
 }
 
-// The current Chrome hybrid ClientHello is larger than the legacy 1.12 hello.
-// Split its TCP transmission without removing key shares or changing TLS bytes.
-// An explicit fragment=false remains an opt-out for advanced configurations.
+// Preserve explicit TCP-fragment and automatic REALITY compatibility choices.
+// Chrome compatibility can choose a compact modern authenticated Hello; its
+// browser and legacy fallbacks never change persisted profile fingerprints.
 func realityTCPCompatibility(config object) {
 	for _, raw := range list(config["outbounds"]) {
 		outbound := obj(raw)
