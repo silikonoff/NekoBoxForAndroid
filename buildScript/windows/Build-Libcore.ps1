@@ -34,13 +34,16 @@ function Invoke-Git([string[]]$Arguments) {
 }
 function Prepare-Source([string]$Name, [string]$Url, [string]$Commit) {
     $path = Join-Path $dependencies $Name
-    if (!(Test-Path -LiteralPath $path)) {
+    $freshCheckout = !(Test-Path -LiteralPath $path)
+    if ($freshCheckout) {
         Invoke-Git -Arguments @('clone','--no-checkout',$Url,$path)
     }
     $head = & git.exe -C $path rev-parse HEAD 2>$null
     if ($head -ne $Commit) {
-        $dirty = & git.exe -C $path status --porcelain
-        if ($dirty) { throw "Preserving modified dependency: $path" }
+        if (!$freshCheckout) {
+            $dirty = & git.exe -C $path status --porcelain
+            if ($dirty) { throw "Preserving modified dependency: $path" }
+        }
         Invoke-Git -Arguments @('-C',$path,'fetch','origin',$Commit)
         Invoke-Git -Arguments @('-C',$path,'checkout','--detach',$Commit)
     }
