@@ -1,5 +1,5 @@
 """Подготовка закреплённых GeoIP/Geosite; проверка содержимого по SHA-256."""
-import argparse, hashlib, json, lzma, urllib.request
+import hashlib, lzma, shutil
 from pathlib import Path
 root=Path(__file__).resolve().parents[1]
 locks={
@@ -14,9 +14,9 @@ for name,(repo,version,expected) in locks.items():
         try:data=lzma.decompress(output.read_bytes())
         except lzma.LZMAError:pass
     if data is None or hashlib.sha256(data).hexdigest()!=expected:
-        url=f'https://github.com/{repo}/releases/download/{version}/{name}.db'
-        with urllib.request.urlopen(url,timeout=120) as response:data=response.read()
+        snapshot=root/'vendor_assets'/(name+'.db.xz')
+        data=lzma.decompress(snapshot.read_bytes())
         if hashlib.sha256(data).hexdigest()!=expected:raise SystemExit('SHA-256 mismatch: '+name)
-        output.write_bytes(lzma.compress(data,preset=9))
+        shutil.copyfile(snapshot,output)
     (target/(name+'.version.txt')).write_text(version,encoding='ascii')
     print(name+': SHA-256 PASS')

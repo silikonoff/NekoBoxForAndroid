@@ -232,7 +232,7 @@ class AboutFragment : ToolbarFragment(R.layout.layout_about) {
                         }
                         return@runOnIoDispatcher
                     }
-                    val releaseName = release.getString("name")
+                    val releaseName = release.getString("tag_name").removePrefix("v")
                     val releaseUrl = release.getString("html_url")
                     var haveUpdate = releaseName.isNotBlank()
                     haveUpdate = if (isPreview) {
