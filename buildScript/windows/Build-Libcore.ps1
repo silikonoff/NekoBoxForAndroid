@@ -59,7 +59,7 @@ foreach ($pin in 'COMMIT_SING_BOX','COMMIT_LIBNEKO','COMMIT_GOMOBILE') {
 $core = Prepare-Source 'sing-box-1.14.4' 'https://github.com/SagerNet/sing-box.git' $pins.COMMIT_SING_BOX
 $mobile = Join-Path $repo 'third_party\gomobile'
 if (!(Test-Path -LiteralPath (Join-Path $mobile 'go.mod'))) { throw 'Missing bundled gomobile source' }
-$patch = Join-Path $repo 'buildScript\patches\nekobox-core.patch'
+$patch = Join-Path $repo 'buildScript\patches\silikbox-core.patch'
 & git.exe -C $core apply --reverse --check $patch 2>$null
 if ($LASTEXITCODE -ne 0) {
     Invoke-Git -Arguments @('-C',$core,'apply','--check',$patch)
@@ -76,7 +76,7 @@ $output = Join-Path $repo 'app\libs\libcore.aar'
 New-Item -ItemType Directory -Force (Split-Path $output) | Out-Null
 Push-Location (Join-Path $repo 'libcore')
 try {
-    & $gomobile bind -target $Target -androidapi 21 -o $output -trimpath -ldflags '-s -w -X github.com/sagernet/sing-box/constant.Version=1.14.4-nickmadbox.1' -tags 'with_gvisor,with_quic,with_wireguard,with_utls,with_clash_api' .
+    & $gomobile bind -target $Target -androidapi 21 -o $output -trimpath -ldflags '-s -w -X github.com/sagernet/sing-box/constant.Version=1.14.4-silikbox.1' -tags 'with_gvisor,with_quic,with_wireguard,with_utls,with_clash_api' .
     if ($LASTEXITCODE) { throw 'libcore AAR build failed' }
 } finally { Pop-Location }
 Get-FileHash -LiteralPath $output -Algorithm SHA256

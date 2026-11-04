@@ -1,4 +1,4 @@
-# Автоматическая совместимость REALITY в NickMadBox
+# Автоматическая совместимость REALITY в silikbox
 
 Механизм ядра основан на принятом alpha5 от03.11.2026. Исходные VLESS TCP/REALITY
 ключи с Chrome импортируются без ручной смены отпечатка или полей профиля.
@@ -29,7 +29,7 @@ WindowsXray26.10.31 воспроизвёл исходный отказ. Ordinary
 Финальный alpha5/255/neko.5: URI/Chrome/customempty/log0/MTU9000/gVisor/обычная
 маршрутизация сохранены. На физическом телефоне приняты импорт,полныйVPN,
 DNS/HTTPS/NL,8параллельных запросов,1МиБ,restart,Wi-Fi/мобильная сеть.
-Подпись и installed/local/GitHub SHA совпали. NickMadBox меняет оболочку и
+Подпись и installed/local/GitHub SHA совпали. silikbox меняет оболочку и
 процесс выпуска; новая версия проверяется отдельно в CHANGELOG.md.
 
 После длительных неудачных проб отдельно исчерпался nginxworker_connections256,

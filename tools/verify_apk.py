@@ -15,7 +15,7 @@ parser = argparse.ArgumentParser()
 parser.add_argument("apk", type=Path)
 parser.add_argument("aar", type=Path)
 parser.add_argument("report", type=Path)
-parser.add_argument("--runtime-label", default="1.14.4-nickmadbox.1")
+parser.add_argument("--runtime-label", default="1.14.4-silikbox.1")
 args = parser.parse_args()
 with zipfile.ZipFile(args.apk) as apk, zipfile.ZipFile(args.aar) as aar:
     libraries = [n for n in apk.namelist() if n.startswith("lib/") and n.endswith(".so")]

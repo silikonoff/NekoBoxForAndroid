@@ -328,7 +328,7 @@ func androidPkgName(name string) string {
 
 // A random uninteresting private key.
 // Must be consistent across builds so newer app versions can be installed.
-// NickMadBox: do not distribute a shared private debug key.
+// silikbox: do not distribute a shared private debug key.
 var debugCert = func() string {
  key, err := rsa.GenerateKey(rand.Reader, 2048)
  if err != nil { panic(err) }

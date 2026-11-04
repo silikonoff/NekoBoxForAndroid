@@ -1,4 +1,4 @@
-name: Проверка и сборка NickMadBox
+name: Проверка и сборка silikbox
 on:
   push:
     branches: [main, 'codex/**']
@@ -54,12 +54,12 @@ jobs:
           $apk = @(Get-ChildItem app/build/outputs/apk/oss/debug -Filter '*arm64-v8a*.apk')
           if ($apk.Count -ne 1) { throw 'Expected one ARM64 APK' }
           New-Item -ItemType Directory -Force artifacts | Out-Null
-          python tools/verify_apk.py $apk[0].FullName app/libs/libcore.aar artifacts/validation.json --runtime-label 1.14.4-nickmadbox.1
+          python tools/verify_apk.py $apk[0].FullName app/libs/libcore.aar artifacts/validation.json --runtime-label 1.14.4-silikbox.1
           if ($LASTEXITCODE) { throw 'Native APK validation failed' }
-          python tools/unsigned_apk.py $apk[0].FullName artifacts/NickMadBox-ci-unsigned-arm64.apk
+          python tools/unsigned_apk.py $apk[0].FullName artifacts/silikbox-ci-unsigned-arm64.apk
           'НЕПОДПИСАННЫЙ артефакт CI. Для установки используйте подписанные APK из Releases.' | Set-Content artifacts/README.txt
-          Get-FileHash artifacts/NickMadBox-ci-unsigned-arm64.apk -Algorithm SHA256 | Format-List | Out-File artifacts/SHA256.txt
+          Get-FileHash artifacts/silikbox-ci-unsigned-arm64.apk -Algorithm SHA256 | Format-List | Out-File artifacts/SHA256.txt
       - uses: actions/upload-artifact@v4
         with:
-          name: NickMadBox-ci-unsigned-arm64
+          name: silikbox-ci-unsigned-arm64
           path: artifacts/

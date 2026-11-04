@@ -270,7 +270,7 @@ class MainActivity : ThemedActivity(),
             }
             .setNeutralButton(android.R.string.cancel, null)
             .setNeutralButton(R.string.action_learn_more) { _, _ ->
-                launchCustomTab("https://github.com/silikonoff/NickMadBox/blob/main/docs/BUILD.mdnb4a-plugin/")
+                launchCustomTab("https://github.com/silikonoff/silikbox/blob/main/README.md#plugins")
             }
             .show()
     }
@@ -341,13 +341,13 @@ class MainActivity : ThemedActivity(),
             R.id.nav_tools -> displayFragment(ToolsFragment())
             R.id.nav_logcat -> displayFragment(LogcatFragment())
             R.id.nav_faq -> {
-                launchCustomTab("https://github.com/silikonoff/NickMadBox/blob/main/docs/BUILD.md")
+                launchCustomTab("https://github.com/silikonoff/silikbox/blob/main/docs/BUILD.md")
                 return false
             }
 
             R.id.nav_about -> displayFragment(AboutFragment())
             R.id.nav_tuiguang -> {
-                launchCustomTab("https://github.com/silikonoff/NickMadBox/releases")
+                launchCustomTab("https://github.com/silikonoff/silikbox/releases")
                 return false
             }
 

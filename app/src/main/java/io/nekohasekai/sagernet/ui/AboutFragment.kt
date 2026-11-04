@@ -84,7 +84,7 @@ class AboutFragment : ToolbarFragment(R.layout.layout_about) {
                                 .subText(SagerNet.appVersionNameForDisplay)
                                 .setOnClickAction {
                                     requireContext().launchCustomTab(
-                                        "https://github.com/silikonoff/NickMadBox/releases"
+                                        "https://github.com/silikonoff/silikbox/releases"
                                     )
                                 }
                                 .build())
@@ -116,7 +116,7 @@ class AboutFragment : ToolbarFragment(R.layout.layout_about) {
                                 .subText(R.string.donate_info)
                                 .setOnClickAction {
                                     requireContext().launchCustomTab(
-                                        "https://github.com/silikonoff/NickMadBox/issues"
+                                        "https://github.com/silikonoff/silikbox/issues"
                                     )
                                 }
                                 .build())
@@ -184,7 +184,7 @@ class AboutFragment : ToolbarFragment(R.layout.layout_about) {
                                 .text(R.string.github)
                                 .setOnClickAction {
                                     requireContext().launchCustomTab(
-                                        "https://github.com/silikonoff/NickMadBox"
+                                        "https://github.com/silikonoff/silikbox"
 
                                     )
                                 }
@@ -195,7 +195,7 @@ class AboutFragment : ToolbarFragment(R.layout.layout_about) {
                                 .text(R.string.telegram)
                                 .setOnClickAction {
                                     requireContext().launchCustomTab(
-                                        "https://github.com/silikonoff/NickMadBox/issues"
+                                        "https://github.com/silikonoff/silikbox/issues"
                                     )
                                 }
                                 .build())
@@ -220,7 +220,7 @@ class AboutFragment : ToolbarFragment(R.layout.layout_about) {
                         trySocks5(DataStore.mixedPort)
                     }
                     val response = client.newRequest().apply {
-                        setURL("https://api.github.com/repos/silikonoff/NickMadBox/releases?per_page=30")
+                        setURL("https://api.github.com/repos/silikonoff/silikbox/releases?per_page=30")
                     }.execute()
                     val releases = JSONArray(Util.getStringBox(response.contentString))
                     val includePreview = checkPreview || BuildConfig.VERSION_NAME.contains("-")

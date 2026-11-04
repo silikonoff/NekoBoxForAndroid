@@ -4,7 +4,7 @@ set -e
 source "buildScript/init/env.sh"
 ENV_NB4A=1
 source "buildScript/lib/core/get_source_env.sh"
-PATCH_FILE="$(pwd)/buildScript/patches/nekobox-core.patch"
+PATCH_FILE="$(pwd)/buildScript/patches/silikbox-core.patch"
 pushd ..
 
 ####
