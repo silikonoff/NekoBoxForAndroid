@@ -18,3 +18,17 @@ jniLibs/
 
 # submodules
 /external
+/.build/
+/.kotlin/
+
+# Локальные ключи и данные пользователя
+*.jks
+*.keystore
+.env
+.env.*
+/cache/
+/artifacts/
+/private/
+*.log
+*.pcap
+*.pcapng

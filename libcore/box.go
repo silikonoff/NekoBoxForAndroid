@@ -5,8 +5,11 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"libcore/configcompat"
+	"libcore/connectiontest"
 	"libcore/device"
 	"log"
+	"net/http"
 	"runtime"
 	"runtime/debug"
 	"strings"
@@ -15,12 +18,11 @@ import (
 	"github.com/matsuridayo/libneko/protect_server"
 	"github.com/matsuridayo/libneko/speedtest"
 	"github.com/sagernet/sing-box/adapter"
+	"github.com/sagernet/sing-box/adapter/certificate"
 	"github.com/sagernet/sing-box/boxapi"
-	"github.com/sagernet/sing-box/experimental/libbox/platform"
 	"github.com/sagernet/sing-box/protocol/group"
 
 	box "github.com/sagernet/sing-box"
-	"github.com/sagernet/sing-box/common/conntrack"
 	"github.com/sagernet/sing-box/common/dialer"
 	"github.com/sagernet/sing-box/constant"
 	"github.com/sagernet/sing-box/option"
@@ -60,7 +62,9 @@ func VersionBox() string {
 
 func ResetAllConnections(system bool) {
 	if system {
-		conntrack.Close()
+		if mainInstance != nil {
+			mainInstance.Box.Network().ResetNetwork(context.Background())
+		}
 		log.Println("Reset system connections done")
 	} else {
 		log.Println("TODO: Reset user connections")
@@ -87,14 +91,21 @@ func NewSingBoxInstance(config string, localTransport LocalDNSTransport) (b *Box
 	ctx = box.Context(ctx,
 		nekoboxAndroidInboundRegistry(), nekoboxAndroidOutboundRegistry(), nekoboxAndroidEndpointRegistry(),
 		nekoboxAndroidDNSTransportRegistry(localTransport), nekoboxAndroidServiceRegistry(),
+		certificate.NewRegistry(),
 	)
 	ctx = service.ContextWithDefaultRegistry(ctx)
-	service.MustRegister[platform.Interface](ctx, boxPlatformInterfaceInstance)
+	service.MustRegister[adapter.PlatformInterface](ctx, boxPlatformInterfaceInstance)
 
 	// parse options
-	var options option.Options
-	err = options.UnmarshalJSONContext(ctx, []byte(config))
+	normalizedConfig, err := configcompat.Normalize([]byte(config))
 	if err != nil {
+		cancel()
+		return nil, fmt.Errorf("migrate config: %w", err)
+	}
+	var options option.Options
+	err = options.UnmarshalJSONContext(ctx, normalizedConfig)
+	if err != nil {
+		cancel()
 		return nil, fmt.Errorf("decode config: %v", err)
 	}
 
@@ -213,25 +224,55 @@ func (b *BoxInstance) SelectOutbound(tag string) bool {
 	return false
 }
 
-func UrlTest(i *BoxInstance, link string, timeout int32) (latency int32, err error) {
-	defer device.DeferPanicToError("box.UrlTest", func(err_ error) { err = err_ })
+func connectionTestClient(i *BoxInstance) *http.Client {
 	var connectionTracker adapter.ConnectionTracker
 	// test i
 	if i != nil {
 		if i.v2api != nil {
 			connectionTracker = i.v2api.StatsService()
 		}
-		return speedtest.UrlTest(boxapi.CreateProxyHttpClient(i.Box, connectionTracker), link, timeout, speedtest.UrlTestStandard_RTT)
+		return boxapi.CreateProxyHttpClient(i.Box, connectionTracker)
 	}
 	// test direct
 	if mainInstance == nil {
-		return speedtest.UrlTest(boxapi.CreateProxyHttpClient(nil, nil), link, timeout, speedtest.UrlTestStandard_RTT)
+		return boxapi.CreateProxyHttpClient(nil, nil)
 	}
 	// test mainInstance
 	if mainInstance.v2api != nil {
 		connectionTracker = mainInstance.v2api.StatsService()
 	}
-	return speedtest.UrlTest(boxapi.CreateProxyHttpClient(mainInstance.Box, connectionTracker), link, timeout, speedtest.UrlTestStandard_RTT)
+	return boxapi.CreateProxyHttpClient(mainInstance.Box, connectionTracker)
+}
+
+func UrlTest(i *BoxInstance, link string, timeout int32) (latency int32, err error) {
+	defer device.DeferPanicToError("box.UrlTest", func(err_ error) { err = err_ })
+	return speedtest.UrlTest(connectionTestClient(i), link, timeout, speedtest.UrlTestStandard_RTT)
+}
+
+type ConnectionTestResult struct {
+	Latency     int32
+	Failure     string
+	Diagnostics string
+}
+
+// RunConnectionTest preserves the existing URL test and attaches a safe stage trace.
+// Failure is for the existing error UI only; Diagnostics contains no error text.
+func RunConnectionTest(i *BoxInstance, link string, timeout int32) (result *ConnectionTestResult) {
+	result = &ConnectionTestResult{}
+	trace := connectiontest.New()
+	defer device.DeferPanicToError("box.RunConnectionTest", func(err error) {
+		result.Failure = err.Error()
+		result.Diagnostics = trace.Report(err)
+	})
+	client := connectionTestClient(i)
+	client.Transport = trace.Wrap(client.Transport)
+	latency, err := speedtest.UrlTest(client, link, timeout, speedtest.UrlTestStandard_RTT)
+	result.Latency = latency
+	if err != nil {
+		result.Failure = err.Error()
+	}
+	result.Diagnostics = trace.Report(err)
+	return result
 }
 
 var protectCloser io.Closer

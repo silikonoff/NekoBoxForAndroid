@@ -46,6 +46,7 @@ fun Project.setupCommon() {
         defaultConfig {
             minSdk = 21
             targetSdk = 35
+            resourceConfigurations += listOf("ru", "en")
         }
         buildTypes {
             getByName("release") {
@@ -94,10 +95,13 @@ fun Project.setupCommon() {
                     }
                 }
                 getByName("debug") {
-                    applicationIdSuffix = "debug"
+                    applicationIdSuffix = ".debug"
                     debuggable(true)
                     jniDebuggable(true)
                 }
+            }
+            applicationVariants.all {
+                resValue("string", "shortcut_target_package", applicationId)
             }
             applicationVariants.forEach { variant ->
                 variant.outputs.forEach {
@@ -197,10 +201,10 @@ fun Project.setupApp() {
                 outputFileName = if (isPreview) {
                     outputFileName.replace(
                         project.name,
-                        "NekoBox-" + requireMetadata().getProperty("PRE_VERSION_NAME")
+                        "NickMadBox-" + requireMetadata().getProperty("PRE_VERSION_NAME")
                     ).replace("-preview", "")
                 } else {
-                    outputFileName.replace(project.name, "NekoBox-$versionName")
+                    outputFileName.replace(project.name, "NickMadBox-$versionName")
                         .replace("-release", "")
                         .replace("-oss", "")
                 }

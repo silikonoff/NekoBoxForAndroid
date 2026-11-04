@@ -88,6 +88,7 @@ class LogcatFragment : ToolbarFragment(R.layout.layout_logcat),
                 runOnDefaultDispatcher {
                     try {
                         Libcore.nekoLogClear()
+                        io.nekohasekai.sagernet.bg.proto.ConnectionDiagnostics.clear()
                         Runtime.getRuntime().exec("/system/bin/logcat -c")
                     } catch (e: Exception) {
                         onMainDispatcher {

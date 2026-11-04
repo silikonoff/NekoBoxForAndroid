@@ -1,101 +1,47 @@
-# NekoBox for Android
+# NickMadBox
 
-[![API](https://img.shields.io/badge/API-21%2B-brightgreen.svg?style=flat)](https://android-arsenal.com/api?level=21)
-[![Releases](https://img.shields.io/github/v/release/MatsuriDayo/NekoBoxForAndroid)](https://github.com/MatsuriDayo/NekoBoxForAndroid/releases)
-[![License: GPL-3.0](https://img.shields.io/badge/license-GPL--3.0-orange.svg)](https://www.gnu.org/licenses/gpl-3.0)
+**Самостоятельный Android-клиент silikonoff на основе NekoBox и sing-box1.14.4.**
+Развитие, версии и поддержка: [silikonoff/NickMadBox](https://github.com/silikonoff/NickMadBox).
 
-sing-box / universal proxy toolchain for Android.
+[Скачать APK](https://github.com/silikonoff/NickMadBox/releases) ·
+[Сообщить об ошибке](https://github.com/silikonoff/NickMadBox/issues) ·
+[Сборка](docs/BUILD.md) · [Изменения](docs/CHANGELOG.md)
 
-一款使用 sing-box 的 Android 通用代理软件.
+## Возможности нашей версии
 
-## 下载 / Downloads
+- Название NickMadBox, синяя тема по умолчанию и отдельная иконка со щитом.
+- Устанавливается рядом с оригинальным NekoBox. Пакет наших сборок:
+  `io.github.silikonoff.nekobox.debug`; он сохранён для обновления прежних alpha.
+- sing-box1.14.4 с собственным слоем совместимости Android и старых профилей.
+- Автоматическая совместимость VLESS TCP/REALITY/Vision с актуальным Xray:
+  импорт исходного ключа с Chrome без ручной смены отпечатка.
+- Русский интерфейс и документация, свои релизы и проверка обновлений.
+- Нужные версии libneko и gomobile включены в исходники; их старые репозитории
+  не нужны для сборки NickMadBox.
 
-[![GitHub All Releases](https://img.shields.io/github/downloads/Matsuridayo/NekoBoxForAndroid/total?label=downloads-total&logo=github&style=flat-square)](https://github.com/Matsuridayo/NekoBoxForAndroid/releases)
+## Установка
 
-[GitHub Releases 下载](https://github.com/Matsuridayo/NekoBoxForAndroid/releases)
+Скачайте подписанный ARM64 APK из Releases и импортируйте ссылку или подписку.
+Оригинальный NekoBox можно оставить установленным. Android использует одно
+активное VPN-подключение одновременно. Обновление нашей версии поверх предыдущей
+сохраняет профили и настройки при совпадении сертификата подписи.
 
-**Google Play 版本自 2024 年 5 月起已被第三方控制，为非开源版本，请不要下载。**
+Ключ подписи хранится на ПК владельца и не передаётся в GitHub или Secrets.
+Артефакт CI **не подписан** и предназначен для проверки сборки, а не установки.
+Пользовательские ключи, профили и журналы в репозиторий не включаются.
 
-**The Google Play version has been controlled by a third party since May 2024 and is a non-open
-source version. Please do not download it.**
+## Проверенный объём и ограничения
 
-## 更新日志 & Telegram 发布频道 / Changelog & Telegram Channel
+Механизм REALITY принят на TECNO KL7/Android14: полный VPN, DNS/HTTPS,
+8параллельных запросов,1МиБ,перезапуск,Wi-Fi/мобильная сеть.
+[Механизм и границы](docs/CHROME_COMPATIBILITY_ALPHA5.md).
+Проверки новой оболочки публикуются в GitHub Actions и Releases; изменения — в [журнале версий](docs/CHANGELOG.md).
+Проект пока имеет статус **alpha**. Полная приёмка всех протоколов, плагинов,
+маршрутов и устройств ещё не закончена. XHTTP через Xray — следующий этап.
 
-https://t.me/Matsuridayo
+## Авторство
 
-## 项目主页 & 文档 / Homepage & Documents
-
-https://matsuridayo.github.io
-
-## 支持的代理协议 / Supported Proxy Protocols
-
-* SOCKS (4/4a/5)
-* HTTP(S)
-* SSH
-* Shadowsocks
-* VMess
-* Trojan
-* VLESS
-* AnyTLS
-* ShadowTLS
-* TUIC
-* Hysteria 1/2
-* WireGuard
-* Trojan-Go (trojan-go-plugin)
-* NaïveProxy (naive-plugin)
-* Mieru (mieru-plugin)
-
-请到[这里](https://matsuridayo.github.io/nb4a-plugin/)下载插件以获得完整的代理支持.
-
-Please visit [here](https://matsuridayo.github.io/nb4a-plugin/) to download plugins for full proxy
-supports.
-
-## 支持的订阅格式 / Supported Subscription Format
-
-* 一些广泛使用的格式 (如 Shadowsocks, ClashMeta 和 v2rayN)
-* sing-box 出站
-
-仅支持解析出站，即节点。分流规则等信息会被忽略。
-
-* Some widely used formats (like Shadowsocks, ClashMeta and v2rayN)
-* sing-box outbound
-
-Only resolving outbound, i.e. nodes, is supported. Information such as diversion rules are ignored.
-
-## 捐助 / Donate
-
-<details>
-
-如果这个项目对您有帮助, 可以通过捐赠的方式帮助我们维持这个项目.
-
-捐赠满等额 50 USD 可以在「[捐赠榜](https://mtrdnt.pages.dev/donation_list)」显示头像, 如果您未被添加到这里,
-欢迎联系我们补充.
-
-Donations of 50 USD or more can display your avatar on
-the [Donation List](https://mtrdnt.pages.dev/donation_list). If you are not added here, please
-contact us to add it.
-
-USDT TRC20
-
-`TRhnA7SXE5Sap5gSG3ijxRmdYFiD4KRhPs`
-
-XMR
-
-`49bwESYQjoRL3xmvTcjZKHEKaiGywjLYVQJMUv79bXonGiyDCs8AzE3KiGW2ytTybBCpWJUvov8SjZZEGg66a4e59GXa6k5`
-
-</details>
-
-## Credits
-
-Core:
-
-- [SagerNet/sing-box](https://github.com/SagerNet/sing-box)
-
-Android GUI:
-
-- [shadowsocks/shadowsocks-android](https://github.com/shadowsocks/shadowsocks-android)
-- [SagerNet/SagerNet](https://github.com/SagerNet/SagerNet)
-
-Web Dashboard:
-
-- [Yacd-meta](https://github.com/MetaCubeX/Yacd-meta)
+NickMadBox сопровождает и развивает **silikonoff**. Основа — NekoBox for Android
+(MatsuriDayo), ранее основанный на SagerNet (nekohasekai). Исходное авторство и
+уведомления сохранены. [Авторство и зависимости](docs/AUTHORSHIP.md).
+Лицензия — [GPL-3.0-or-later](LICENSE).

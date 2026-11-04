@@ -144,8 +144,8 @@ class BaseService {
                 error("core not started")
             }
             try {
-                return Libcore.urlTest(
-                    data!!.proxy!!.box, DataStore.connectionTestURL, 3000
+                return io.nekohasekai.sagernet.bg.proto.ConnectionDiagnostics.test(
+                    data!!.proxy!!.box, DataStore.connectionTestURL, 3000, "running_vpn"
                 )
             } catch (e: Exception) {
                 error(Protocols.genFriendlyMsg(e.readableMessage))

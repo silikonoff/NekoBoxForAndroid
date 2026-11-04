@@ -35,6 +35,7 @@ import io.nekohasekai.sagernet.SagerNet
 import io.nekohasekai.sagernet.database.DataStore
 import moe.matsuri.nb4a.utils.Util
 import org.json.JSONObject
+import org.json.JSONArray
 
 class AboutFragment : ToolbarFragment(R.layout.layout_about) {
 
@@ -83,7 +84,7 @@ class AboutFragment : ToolbarFragment(R.layout.layout_about) {
                                 .subText(SagerNet.appVersionNameForDisplay)
                                 .setOnClickAction {
                                     requireContext().launchCustomTab(
-                                        "https://github.com/MatsuriDayo/NekoBoxForAndroid/releases"
+                                        "https://github.com/silikonoff/NickMadBox/releases"
                                     )
                                 }
                                 .build())
@@ -115,7 +116,7 @@ class AboutFragment : ToolbarFragment(R.layout.layout_about) {
                                 .subText(R.string.donate_info)
                                 .setOnClickAction {
                                     requireContext().launchCustomTab(
-                                        "https://matsuridayo.github.io/index_docs/#donate"
+                                        "https://github.com/silikonoff/NickMadBox/issues"
                                     )
                                 }
                                 .build())
@@ -183,7 +184,7 @@ class AboutFragment : ToolbarFragment(R.layout.layout_about) {
                                 .text(R.string.github)
                                 .setOnClickAction {
                                     requireContext().launchCustomTab(
-                                        "https://github.com/MatsuriDayo/NekoBoxForAndroid"
+                                        "https://github.com/silikonoff/NickMadBox"
 
                                     )
                                 }
@@ -194,7 +195,7 @@ class AboutFragment : ToolbarFragment(R.layout.layout_about) {
                                 .text(R.string.telegram)
                                 .setOnClickAction {
                                     requireContext().launchCustomTab(
-                                        "https://t.me/MatsuriDayo"
+                                        "https://github.com/silikonoff/NickMadBox/issues"
                                     )
                                 }
                                 .build())
@@ -219,14 +220,19 @@ class AboutFragment : ToolbarFragment(R.layout.layout_about) {
                         trySocks5(DataStore.mixedPort)
                     }
                     val response = client.newRequest().apply {
-                        if (checkPreview) {
-                            setURL("https://api.github.com/repos/MatsuriDayo/NekoBoxForAndroid/releases/tags/preview")
-                        } else {
-                            setURL("https://api.github.com/repos/MatsuriDayo/NekoBoxForAndroid/releases/latest")
-                        }
+                        setURL("https://api.github.com/repos/silikonoff/NickMadBox/releases?per_page=30")
                     }.execute()
-                    val release = JSONObject(Util.getStringBox(response.contentString))
-                    val releaseName = release.getString("name")
+                    val releases = JSONArray(Util.getStringBox(response.contentString))
+                    val includePreview = checkPreview || BuildConfig.VERSION_NAME.contains("-")
+                    val release = (0 until releases.length()).map { releases.getJSONObject(it) }
+                        .firstOrNull { !it.optBoolean("draft") && (includePreview || !it.optBoolean("prerelease")) }
+                    if (release == null) {
+                        runOnMainDispatcher {
+                            Toast.makeText(app, R.string.check_update_no, Toast.LENGTH_SHORT).show()
+                        }
+                        return@runOnIoDispatcher
+                    }
+                    val releaseName = release.getString("tag_name").removePrefix("v")
                     val releaseUrl = release.getString("html_url")
                     var haveUpdate = releaseName.isNotBlank()
                     haveUpdate = if (isPreview) {

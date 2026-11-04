@@ -6,6 +6,7 @@ import androidx.core.content.FileProvider
 import io.nekohasekai.sagernet.BuildConfig
 import io.nekohasekai.sagernet.R
 import io.nekohasekai.sagernet.SagerNet
+import io.nekohasekai.sagernet.bg.proto.ConnectionDiagnostics
 import io.nekohasekai.sagernet.ktx.Logs
 import io.nekohasekai.sagernet.ktx.app
 import io.nekohasekai.sagernet.ktx.use
@@ -43,6 +44,7 @@ object SendLog {
 
         logFile.appendText("\n")
         logFile.appendBytes(getNekoLog(0))
+        logFile.appendText(ConnectionDiagnostics.export())
 
         context.startActivity(
             Intent.createChooser(

@@ -1,0 +1,963 @@
+diff --git a/box.go b/box.go
+index 3654fb6..cd33872 100644
+--- a/box.go
++++ b/box.go
+@@ -151,7 +151,7 @@ func New(options Options) (*Box, error) {
+ 	var needCacheFile bool
+ 	var needClashAPI bool
+ 	var needV2RayAPI bool
+-	if experimentalOptions.CacheFile != nil && experimentalOptions.CacheFile.Enabled || options.PlatformLogWriter != nil {
++	if experimentalOptions.CacheFile != nil && experimentalOptions.CacheFile.Enabled {
+ 		needCacheFile = true
+ 	}
+ 	if experimentalOptions.ClashAPI != nil {
+diff --git a/boxapi/go_http.go b/boxapi/go_http.go
+new file mode 100644
+index 0000000..3cba5eb
+--- /dev/null
++++ b/boxapi/go_http.go
+@@ -0,0 +1,30 @@
++package boxapi
++
++import (
++	"context"
++	"net"
++	"net/http"
++	"time"
++
++	box "github.com/sagernet/sing-box"
++	"github.com/sagernet/sing-box/adapter"
++)
++
++func CreateProxyHttpClient(box *box.Box, tracker adapter.ConnectionTracker) *http.Client {
++	transport := &http.Transport{
++		TLSHandshakeTimeout:   time.Second * 3,
++		ResponseHeaderTimeout: time.Second * 3,
++	}
++
++	if box != nil {
++		transport.DialContext = func(ctx context.Context, network, addr string) (net.Conn, error) {
++			return DialContext(ctx, box, tracker, network, addr)
++		}
++	}
++
++	client := &http.Client{
++		Transport: transport,
++	}
++
++	return client
++}
+diff --git a/boxapi/go_net.go b/boxapi/go_net.go
+new file mode 100644
+index 0000000..5a7637d
+--- /dev/null
++++ b/boxapi/go_net.go
+@@ -0,0 +1,23 @@
++package boxapi
++
++import (
++	"context"
++	"net"
++
++	box "github.com/sagernet/sing-box"
++	"github.com/sagernet/sing-box/adapter"
++	"github.com/sagernet/sing-box/common/dialer"
++	"github.com/sagernet/sing/common/metadata"
++)
++
++func DialContext(ctx context.Context, box *box.Box, tracker adapter.ConnectionTracker, network, addr string) (net.Conn, error) {
++	defOutboundTag := box.Outbound().Default().Tag()
++	conn, err := dialer.NewDetour(box.Outbound(), defOutboundTag, true).DialContext(ctx, network, metadata.ParseSocksaddr(addr))
++	if err != nil {
++		return nil, err
++	}
++	if ss, ok := tracker.(*SbStatsService); ok {
++		conn = ss.RoutedConnectionInternal("", defOutboundTag, "", conn, false)
++	}
++	return conn, nil
++}
+diff --git a/boxapi/v2ray_server.go b/boxapi/v2ray_server.go
+new file mode 100644
+index 0000000..a97e0af
+--- /dev/null
++++ b/boxapi/v2ray_server.go
+@@ -0,0 +1,32 @@
++package boxapi
++
++import (
++	"context"
++
++	"github.com/sagernet/sing-box/adapter"
++	"github.com/sagernet/sing-box/option"
++)
++
++type SbV2rayServer struct {
++	ss *SbStatsService
++}
++
++func NewSbV2rayServer(options option.V2RayStatsServiceOptions) *SbV2rayServer {
++	return &SbV2rayServer{
++		ss: NewSbStatsService(options),
++	}
++}
++
++func (s *SbV2rayServer) Start() error                            { return nil }
++func (s *SbV2rayServer) Close() error                            { return nil }
++func (s *SbV2rayServer) StatsService() adapter.ConnectionTracker { return s.ss }
++
++// NekoRay style API
++
++func (s *SbV2rayServer) QueryStats(name string) int64 {
++	value, err := s.ss.GetStats(context.TODO(), name, true)
++	if err == nil {
++		return value
++	}
++	return 0
++}
+diff --git a/boxapi/v2ray_stats_service.go b/boxapi/v2ray_stats_service.go
+new file mode 100644
+index 0000000..c310958
+--- /dev/null
++++ b/boxapi/v2ray_stats_service.go
+@@ -0,0 +1,205 @@
++package boxapi
++
++import (
++	"context"
++	"net"
++	"sync"
++	"sync/atomic"
++	"time"
++
++	"github.com/sagernet/sing-box/adapter"
++	"github.com/sagernet/sing-box/option"
++	"github.com/sagernet/sing-tun"
++	"github.com/sagernet/sing/common/bufio"
++	E "github.com/sagernet/sing/common/exceptions"
++	N "github.com/sagernet/sing/common/network"
++)
++
++type SbStatsService struct {
++	createdAt time.Time
++	inbounds  map[string]bool
++	outbounds map[string]bool
++	users     map[string]bool
++	access    sync.Mutex
++	counters  map[string]*atomic.Int64
++}
++
++func NewSbStatsService(options option.V2RayStatsServiceOptions) *SbStatsService {
++	if !options.Enabled {
++		return nil
++	}
++	inbounds := make(map[string]bool)
++	outbounds := make(map[string]bool)
++	users := make(map[string]bool)
++	for _, inbound := range options.Inbounds {
++		inbounds[inbound] = true
++	}
++	for _, outbound := range options.Outbounds {
++		outbounds[outbound] = true
++	}
++	for _, user := range options.Users {
++		users[user] = true
++	}
++	return &SbStatsService{
++		createdAt: time.Now(),
++		inbounds:  inbounds,
++		outbounds: outbounds,
++		users:     users,
++		counters:  make(map[string]*atomic.Int64),
++	}
++}
++
++func (s *SbStatsService) RoutedConnection(ctx context.Context, conn net.Conn, metadata adapter.InboundContext, matchedRule adapter.Rule, matchOutbound adapter.Outbound) net.Conn {
++	inbound := metadata.Inbound
++	user := metadata.User
++	outbound := matchOutbound.Tag()
++	return s.RoutedConnectionInternal(inbound, outbound, user, conn, true)
++}
++
++func (s *SbStatsService) RoutedConnectionInternal(inbound string, outbound string, user string, conn net.Conn, directIn bool) net.Conn {
++	var readCounter []*atomic.Int64
++	var writeCounter []*atomic.Int64
++	countInbound := inbound != "" && s.inbounds[inbound]
++	countOutbound := outbound != "" && s.outbounds[outbound]
++	countUser := user != "" && s.users[user]
++	if !countInbound && !countOutbound && !countUser {
++		return conn
++	}
++	s.access.Lock()
++	if countInbound {
++		readCounter = append(readCounter, s.loadOrCreateCounter("inbound>>>"+inbound+">>>traffic>>>uplink"))
++		writeCounter = append(writeCounter, s.loadOrCreateCounter("inbound>>>"+inbound+">>>traffic>>>downlink"))
++	}
++	if countOutbound {
++		readCounter = append(readCounter, s.loadOrCreateCounter("outbound>>>"+outbound+">>>traffic>>>uplink"))
++		writeCounter = append(writeCounter, s.loadOrCreateCounter("outbound>>>"+outbound+">>>traffic>>>downlink"))
++	}
++	if countUser {
++		readCounter = append(readCounter, s.loadOrCreateCounter("user>>>"+user+">>>traffic>>>uplink"))
++		writeCounter = append(writeCounter, s.loadOrCreateCounter("user>>>"+user+">>>traffic>>>downlink"))
++	}
++	s.access.Unlock()
++	if directIn {
++		conn = bufio.NewInt64CounterConn(conn, readCounter, writeCounter)
++	} else {
++		conn = bufio.NewInt64CounterConn(conn, writeCounter, readCounter)
++	}
++	return conn
++}
++
++func (s *SbStatsService) RoutedPacketConnection(ctx context.Context, conn N.PacketConn, metadata adapter.InboundContext, matchedRule adapter.Rule, matchOutbound adapter.Outbound) N.PacketConn {
++	inbound := metadata.Inbound
++	user := metadata.User
++	outbound := matchOutbound.Tag()
++	var readCounter []*atomic.Int64
++	var writeCounter []*atomic.Int64
++	countInbound := inbound != "" && s.inbounds[inbound]
++	countOutbound := outbound != "" && s.outbounds[outbound]
++	countUser := user != "" && s.users[user]
++	if !countInbound && !countOutbound && !countUser {
++		return conn
++	}
++	s.access.Lock()
++	if countInbound {
++		readCounter = append(readCounter, s.loadOrCreateCounter("inbound>>>"+inbound+">>>traffic>>>uplink"))
++		writeCounter = append(writeCounter, s.loadOrCreateCounter("inbound>>>"+inbound+">>>traffic>>>downlink"))
++	}
++	if countOutbound {
++		readCounter = append(readCounter, s.loadOrCreateCounter("outbound>>>"+outbound+">>>traffic>>>uplink"))
++		writeCounter = append(writeCounter, s.loadOrCreateCounter("outbound>>>"+outbound+">>>traffic>>>downlink"))
++	}
++	if countUser {
++		readCounter = append(readCounter, s.loadOrCreateCounter("user>>>"+user+">>>traffic>>>uplink"))
++		writeCounter = append(writeCounter, s.loadOrCreateCounter("user>>>"+user+">>>traffic>>>downlink"))
++	}
++	s.access.Unlock()
++	return bufio.NewInt64CounterPacketConn(conn, readCounter, nil, writeCounter, nil)
++}
++
++func (s *SbStatsService) GetStats(ctx context.Context, name string, reset bool) (int64, error) {
++	s.access.Lock()
++	counter, loaded := s.counters[name]
++	s.access.Unlock()
++	if !loaded {
++		return 0, E.New(name, " not found.")
++	}
++	var value int64
++	if reset {
++		value = counter.Swap(0)
++	} else {
++		value = counter.Load()
++	}
++	return value, nil
++}
++
++// QueryStats
++
++// GetSysStats
++
++//nolint:staticcheck
++func (s *SbStatsService) loadOrCreateCounter(name string) *atomic.Int64 {
++	counter, loaded := s.counters[name]
++	if loaded {
++		return counter
++	}
++	counter = &atomic.Int64{}
++	s.counters[name] = counter
++	return counter
++}
++
++func (s *SbStatsService) RoutedFlow(ctx context.Context, metadata adapter.InboundContext, matchedRule adapter.Rule, matchOutbound adapter.Outbound) tun.FlowTracker {
++	inbound := metadata.Inbound
++	user := metadata.User
++	outbound := matchOutbound.Tag()
++	var uplinkCounter []*atomic.Int64
++	var downlinkCounter []*atomic.Int64
++	countInbound := inbound != "" && s.inbounds[inbound]
++	countOutbound := outbound != "" && s.outbounds[outbound]
++	countUser := user != "" && s.users[user]
++	if !countInbound && !countOutbound && !countUser {
++		return nil
++	}
++	s.access.Lock()
++	if countInbound {
++		uplinkCounter = append(uplinkCounter, s.loadOrCreateCounter("inbound>>>"+inbound+">>>traffic>>>uplink"))
++		downlinkCounter = append(downlinkCounter, s.loadOrCreateCounter("inbound>>>"+inbound+">>>traffic>>>downlink"))
++	}
++	if countOutbound {
++		uplinkCounter = append(uplinkCounter, s.loadOrCreateCounter("outbound>>>"+outbound+">>>traffic>>>uplink"))
++		downlinkCounter = append(downlinkCounter, s.loadOrCreateCounter("outbound>>>"+outbound+">>>traffic>>>downlink"))
++	}
++	if countUser {
++		uplinkCounter = append(uplinkCounter, s.loadOrCreateCounter("user>>>"+user+">>>traffic>>>uplink"))
++		downlinkCounter = append(downlinkCounter, s.loadOrCreateCounter("user>>>"+user+">>>traffic>>>downlink"))
++	}
++	s.access.Unlock()
++	return &statsFlowTracker{uplinkCounter: uplinkCounter, downlinkCounter: downlinkCounter}
++}
++
++var _ tun.FlowTracker = (*statsFlowTracker)(nil)
++
++type statsFlowTracker struct {
++	uplinkCounter   []*atomic.Int64
++	downlinkCounter []*atomic.Int64
++}
++
++func (t *statsFlowTracker) AttachFlow(handle tun.FlowHandle) {
++}
++
++func (t *statsFlowTracker) CountForward(n int) {
++	for _, counter := range t.uplinkCounter {
++		counter.Add(int64(n))
++	}
++}
++
++func (t *statsFlowTracker) CountReverse(n int) {
++	for _, counter := range t.downlinkCounter {
++		counter.Add(int64(n))
++	}
++}
++
++func (t *statsFlowTracker) FlowEstablished() {
++}
++
++func (t *statsFlowTracker) CloseFlow(reason tun.FlowCloseReason) {
++}
+diff --git a/boxapi/v2ray_stats_service_test.go b/boxapi/v2ray_stats_service_test.go
+new file mode 100644
+index 0000000..c42c295
+--- /dev/null
++++ b/boxapi/v2ray_stats_service_test.go
+@@ -0,0 +1,57 @@
++package boxapi
++
++import (
++	"context"
++	"testing"
++
++	"github.com/sagernet/sing-box/adapter"
++	"github.com/sagernet/sing-box/option"
++)
++
++type taggedOutbound struct {
++	adapter.Outbound
++	tag string
++}
++
++func (o taggedOutbound) Tag() string { return o.tag }
++
++// Native TUN flow offload must not bypass the counters displayed by NekoBox.
++func TestFlowTrafficAndReset(t *testing.T) {
++	s := NewSbStatsService(option.V2RayStatsServiceOptions{Enabled: true, Outbounds: []string{"proxy"}})
++	f := s.RoutedFlow(context.Background(), adapter.InboundContext{}, nil, taggedOutbound{tag: "proxy"})
++	if f == nil {
++		t.Fatal("tracked outbound has no flow tracker")
++	}
++	f.CountForward(137)
++	f.CountReverse(293)
++	for direction, want := range map[string]int64{"uplink": 137, "downlink": 293} {
++		name := "outbound>>>proxy>>>traffic>>>" + direction
++		got, err := s.GetStats(context.Background(), name, true)
++		if err != nil || got != want {
++			t.Fatalf("%s: got %d, %v; want %d", direction, got, err, want)
++		}
++		got, err = s.GetStats(context.Background(), name, false)
++		if err != nil || got != 0 {
++			t.Fatalf("%s counter did not reset: %d, %v", direction, got, err)
++		}
++	}
++}
++
++func TestFlowDoesNotCountUnselectedOutbound(t *testing.T) {
++	s := NewSbStatsService(option.V2RayStatsServiceOptions{Enabled: true, Outbounds: []string{"proxy"}})
++	if s.RoutedFlow(context.Background(), adapter.InboundContext{}, nil, taggedOutbound{tag: "direct"}) != nil {
++		t.Fatal("unexpected accounting for an untracked outbound")
++	}
++}
++
++func TestFlowAccountsInboundAndUser(t *testing.T) {
++	s := NewSbStatsService(option.V2RayStatsServiceOptions{Enabled: true, Inbounds: []string{"tun"}, Users: []string{"test-user"}})
++	f := s.RoutedFlow(context.Background(), adapter.InboundContext{Inbound: "tun", User: "test-user"}, nil, taggedOutbound{tag: "proxy"})
++	f.CountForward(71)
++	for _, name := range []string{"inbound>>>tun>>>traffic>>>uplink", "user>>>test-user>>>traffic>>>uplink"} {
++		got, err := s.GetStats(context.Background(), name, false)
++		if err != nil || got != 71 {
++			t.Fatalf("%s: got %d, %v", name, got, err)
++		}
++	}
++}
+diff --git a/common/dialer/default.go b/common/dialer/default.go
+index 75fac2f..e55dda0 100644
+--- a/common/dialer/default.go
++++ b/common/dialer/default.go
+@@ -25,6 +25,9 @@ import (
+ 	"github.com/database64128/tfo-go/v2"
+ )
+ 
++// NekoBox protects sockets through Android VpnService instead of interface selection.
++var DoNotSelectInterface bool
++
+ var (
+ 	_ ParallelInterfaceDialer = (*DefaultDialer)(nil)
+ 	_ UDPListener             = (*DefaultDialer)(nil)
+@@ -273,7 +276,7 @@ func (d *DefaultDialer) DialContext(ctx context.Context, network string, address
+ 	} else if address.IsDomain() {
+ 		return nil, E.New("domain not resolved")
+ 	}
+-	if d.networkStrategy == nil {
++	if DoNotSelectInterface || d.networkStrategy == nil {
+ 		conn, err := listener.ListenNetworkNamespace[net.Conn](ctx, d.netns, func() (net.Conn, error) {
+ 			switch N.NetworkName(network) {
+ 			case N.NetworkUDP:
+@@ -344,7 +347,7 @@ func (d *DefaultDialer) DialParallelInterface(ctx context.Context, network strin
+ }
+ 
+ func (d *DefaultDialer) ListenPacket(ctx context.Context, destination M.Socksaddr) (net.PacketConn, error) {
+-	if d.networkStrategy == nil {
++	if DoNotSelectInterface || d.networkStrategy == nil {
+ 		packetConn, err := listener.ListenNetworkNamespace[net.PacketConn](ctx, d.netns, func() (net.PacketConn, error) {
+ 			listenConfig := d.udpListener
+ 			if d.autoDetectBindFunc != nil {
+diff --git a/common/tls/client.go b/common/tls/client.go
+index 7b30368..84bbf86 100644
+--- a/common/tls/client.go
++++ b/common/tls/client.go
+@@ -152,6 +152,11 @@ func (d *defaultDialer) DialTLSContext(ctx context.Context, destination M.Socksa
+ }
+ 
+ func (d *defaultDialer) dialContext(ctx context.Context, destination M.Socksaddr, echRetry bool) (Conn, error) {
++	if config, ok := d.config.(interface {
++		dialWithCompatibility(context.Context, N.Dialer, M.Socksaddr) (Conn, error)
++	}); ok {
++		return config.dialWithCompatibility(ctx, d.dialer, destination)
++	}
+ 	conn, err := d.dialer.DialContext(ctx, N.NetworkTCP, destination)
+ 	if err != nil {
+ 		return nil, err
+diff --git a/common/tls/reality_client.go b/common/tls/reality_client.go
+index be4806f..5bc6e43 100644
+--- a/common/tls/reality_client.go
++++ b/common/tls/reality_client.go
+@@ -28,9 +28,9 @@ import (
+ 	"unsafe"
+ 
+ 	"github.com/sagernet/sing-box/adapter"
++	tf "github.com/sagernet/sing-box/common/tlsfragment"
+ 	C "github.com/sagernet/sing-box/constant"
+ 	"github.com/sagernet/sing-box/option"
+-	"github.com/sagernet/sing/common"
+ 	"github.com/sagernet/sing/common/debug"
+ 	E "github.com/sagernet/sing/common/exceptions"
+ 	"github.com/sagernet/sing/common/logger"
+@@ -46,10 +46,13 @@ import (
+ var _ ConfigCompat = (*RealityClientConfig)(nil)
+ 
+ type RealityClientConfig struct {
+-	ctx       context.Context
+-	uClient   *UTLSClientConfig
+-	publicKey []byte
+-	shortID   [8]byte
++	ctx                 context.Context
++	uClient             *UTLSClientConfig
++	publicKey           []byte
++	shortID             [8]byte
++	legacyChrome        bool
++	compactChrome       bool
++	chromeCompatibility *realityChromeCompatibility
+ }
+ 
+ func NewRealityClient(ctx context.Context, logger logger.ContextLogger, serverAddress string, options option.OutboundTLSOptions) (Config, error) {
+@@ -85,7 +88,11 @@ func newRealityClient(ctx context.Context, logger logger.ContextLogger, serverAd
+ 		return nil, E.New("invalid short_id")
+ 	}
+ 
+-	var config Config = &RealityClientConfig{ctx, uClient.(*UTLSClientConfig), publicKey, shortID}
++	realityConfig := &RealityClientConfig{ctx: ctx, uClient: uClient.(*UTLSClientConfig), publicKey: publicKey, shortID: shortID}
++	if options.Reality.LegacyChromeFallback && realityConfig.uClient.id == utls.HelloChrome_Auto {
++		realityConfig.chromeCompatibility = &realityChromeCompatibility{gate: make(chan struct{}, 1)}
++	}
++	var config Config = realityConfig
+ 	if options.KernelRx || options.KernelTx {
+ 		if !C.IsLinux {
+ 			return nil, E.New("kTLS is only supported on Linux")
+@@ -133,6 +140,12 @@ func (e *RealityClientConfig) Client(conn net.Conn) (Conn, error) {
+ }
+ 
+ func (e *RealityClientConfig) ClientHandshake(ctx context.Context, conn net.Conn) (aTLS.Conn, error) {
++	// REALITY constructs its own uTLS connection instead of calling
++	// UTLSClientConfig.Client, so apply the packet-fragment option here too.
++	// Preserve the TLS record and ClientHello bytes used for REALITY authentication.
++	if e.uClient.fragment {
++		conn = tf.NewConn(conn, ctx, true, false, e.uClient.fragmentFallbackDelay)
++	}
+ 	verifier := &realityVerifier{
+ 		serverName: e.uClient.ServerName(),
+ 	}
+@@ -140,22 +153,43 @@ func (e *RealityClientConfig) ClientHandshake(ctx context.Context, conn net.Conn
+ 	uConfig.InsecureSkipVerify = true
+ 	uConfig.SessionTicketsDisabled = true
+ 	uConfig.VerifyPeerCertificate = verifier.VerifyPeerCertificate
+-	uConn := utls.UClient(conn, uConfig, e.uClient.id)
++	id := e.uClient.id
++	if e.compactChrome {
++		id = utls.HelloCustom
++	}
++	uConn := utls.UClient(conn, uConfig, id)
++	if e.compactChrome {
++		if err := uConn.ApplyPreset(realityCompactPreset()); err != nil {
++			return nil, err
++		}
++	}
+ 	verifier.UConn = uConn
+ 	err := uConn.BuildHandshakeState()
+ 	if err != nil {
+ 		return nil, err
+ 	}
+-	for _, extension := range uConn.Extensions {
+-		if ce, ok := extension.(*utls.SupportedCurvesExtension); ok {
+-			ce.Curves = common.Filter(ce.Curves, func(curveID utls.CurveID) bool {
+-				return curveID != utls.X25519MLKEM768
+-			})
+-		}
+-		if ks, ok := extension.(*utls.KeyShareExtension); ok {
+-			ks.KeyShares = common.Filter(ks.KeyShares, func(share utls.KeyShare) bool {
+-				return share.Group != utls.X25519MLKEM768
+-			})
++	// Preserve the fingerprint's hybrid key share. Current Xray REALITY rejects
++	// ClientHellos without X25519MLKEM768 before the optional X25519 share.
++	if e.legacyChrome {
++		for _, extension := range uConn.Extensions {
++			switch extension := extension.(type) {
++			case *utls.SupportedCurvesExtension:
++				curves := extension.Curves[:0]
++				for _, curve := range extension.Curves {
++					if curve != utls.X25519MLKEM768 {
++						curves = append(curves, curve)
++					}
++				}
++				extension.Curves = curves
++			case *utls.KeyShareExtension:
++				shares := extension.KeyShares[:0]
++				for _, share := range extension.KeyShares {
++					if share.Group != utls.X25519MLKEM768 {
++						shares = append(shares, share)
++					}
++				}
++				extension.KeyShares = shares
++			}
+ 		}
+ 	}
+ 	err = uConn.BuildHandshakeState()
+@@ -201,6 +235,9 @@ func (e *RealityClientConfig) ClientHandshake(ctx context.Context, conn net.Conn
+ 		return nil, E.New("nil KeyShareKeys")
+ 	}
+ 	ecdheKey := keyShareKeys.Ecdhe
++	if ecdheKey == nil {
++		ecdheKey = keyShareKeys.MlkemEcdhe
++	}
+ 	if ecdheKey == nil {
+ 		return nil, E.New("nil ecdheKey")
+ 	}
+@@ -276,10 +313,13 @@ func realityClientFallback(ctx context.Context, uConn net.Conn, serverName strin
+ 
+ func (e *RealityClientConfig) Clone() Config {
+ 	return &RealityClientConfig{
+-		e.ctx,
+-		e.uClient.Clone().(*UTLSClientConfig),
+-		e.publicKey,
+-		e.shortID,
++		ctx:                 e.ctx,
++		uClient:             e.uClient.Clone().(*UTLSClientConfig),
++		publicKey:           e.publicKey,
++		shortID:             e.shortID,
++		legacyChrome:        e.legacyChrome,
++		compactChrome:       e.compactChrome,
++		chromeCompatibility: e.chromeCompatibility,
+ 	}
+ }
+ 
+diff --git a/common/tls/reality_compat.go b/common/tls/reality_compat.go
+new file mode 100644
+index 0000000..7e2fa4d
+--- /dev/null
++++ b/common/tls/reality_compat.go
+@@ -0,0 +1,148 @@
++//go:build with_utls
++
++package tls
++
++import (
++	"context"
++	"sync/atomic"
++	"time"
++
++	M "github.com/sagernet/sing/common/metadata"
++	N "github.com/sagernet/sing/common/network"
++	aTLS "github.com/sagernet/sing/common/tls"
++)
++
++// Scoped to this outbound and its clones; never persisted in a profile.
++// 0 = untested, 1 = browser Chrome, 2 = legacy Chrome, 3 = compact modern.
++type realityChromeCompatibility struct {
++	mode atomic.Uint32
++	gate chan struct{}
++}
++
++func (e *RealityClientConfig) dialWithCompatibility(ctx context.Context, dialer N.Dialer, destination M.Socksaddr) (Conn, error) {
++	policy := e.chromeCompatibility
++	if policy == nil {
++		return e.dialRealityAttempt(ctx, dialer, destination)
++	}
++	if timeout := e.HandshakeTimeout(); timeout > 0 {
++		var cancel context.CancelFunc
++		ctx, cancel = context.WithTimeout(ctx, timeout)
++		defer cancel()
++	}
++	if policy.mode.Load() == 0 {
++		select {
++		case policy.gate <- struct{}{}:
++			defer func() { <-policy.gate }()
++		case <-ctx.Done():
++			return nil, ctx.Err()
++		}
++	}
++	// A large modern Chrome Hello can authenticate and still have subsequent
++	// bytes dropped on the network path. Prefer the compact modern variant for
++	// discovery; preserve the browser and legacy variants as authenticated
++	// fallbacks. Explicit legacy_chrome_fallback=false bypasses this policy.
++	preferred := policy.mode.Load()
++	if preferred == 0 {
++		preferred = 3
++	}
++	order := []uint32{preferred}
++	for _, mode := range []uint32{3, 1, 2} {
++		if mode != preferred {
++			order = append(order, mode)
++		}
++	}
++	type result struct {
++		conn Conn
++		err  error
++		mode uint32
++	}
++	attemptCtx, cancel := context.WithCancel(ctx)
++	results := make(chan result, len(order))
++	started, received := 0, 0
++	startNext := func() {
++		mode := order[started]
++		started++
++		config := e.Clone().(*RealityClientConfig)
++		config.legacyChrome = mode == 2
++		config.compactChrome = mode == 3
++		go func() {
++			conn, err := config.dialRealityAttempt(attemptCtx, dialer, destination)
++			results <- result{conn, err, mode}
++		}()
++	}
++	defer func() {
++		cancel()
++		// Every attempt always sends once to the buffered channel, including
++		// cancellation. Dispose the losing socket even if it just authenticated.
++		pending := started - received
++		if pending > 0 {
++			go func() {
++				for i := 0; i < pending; i++ {
++					r := <-results
++					if r.conn != nil {
++						r.conn.Close()
++					}
++				}
++			}()
++		}
++	}()
++	startNext()
++	timer := time.NewTimer(500 * time.Millisecond)
++	defer timer.Stop()
++	timerC := timer.C
++	advance := func() {
++		if started < len(order) {
++			startNext()
++		}
++		if started < len(order) {
++			if !timer.Stop() {
++				select {
++				case <-timer.C:
++				default:
++				}
++			}
++			timer.Reset(500 * time.Millisecond)
++			timerC = timer.C
++		} else {
++			timerC = nil
++		}
++	}
++	for {
++		select {
++		case r := <-results:
++			received++
++			if r.err == nil {
++				// Every variant returns only after the normal REALITY certificate
++				// MAC verification. TCP/TLS success alone never learns a mode.
++				policy.mode.Store(r.mode)
++				return r.conn, nil
++			}
++			if ctx.Err() != nil {
++				return nil, ctx.Err()
++			}
++			policy.mode.CompareAndSwap(r.mode, 0)
++			advance()
++			if received == len(order) {
++				return nil, r.err
++			}
++		case <-timerC:
++			// Keep prior attempts alive within the original handshake budget.
++			advance()
++		case <-ctx.Done():
++			return nil, ctx.Err()
++		}
++	}
++}
++
++func (e *RealityClientConfig) dialRealityAttempt(ctx context.Context, dialer N.Dialer, destination M.Socksaddr) (Conn, error) {
++	conn, err := dialer.DialContext(ctx, N.NetworkTCP, destination)
++	if err != nil {
++		return nil, err
++	}
++	tlsConn, err := aTLS.ClientHandshake(ctx, conn, e)
++	if err != nil {
++		conn.Close()
++		return nil, err
++	}
++	return tlsConn, nil
++}
+diff --git a/nekoutils/callback.go b/nekoutils/callback.go
+new file mode 100644
+index 0000000..97f5612
+--- /dev/null
++++ b/nekoutils/callback.go
+@@ -0,0 +1,3 @@
++package nekoutils
++
++var Selector_OnProxySelected func(selectorTag string, tag string)
+diff --git a/nekoutils/srs.go b/nekoutils/srs.go
+new file mode 100644
+index 0000000..a86df58
+--- /dev/null
++++ b/nekoutils/srs.go
+@@ -0,0 +1,7 @@
++package nekoutils
++
++import "github.com/sagernet/sing-box/option"
++
++var GetGeoIPHeadlessRules func(name string) ([]option.HeadlessRule, error)
++
++var GetGeoSiteHeadlessRules func(name string) ([]option.HeadlessRule, error)
+diff --git a/option/rule_action.go b/option/rule_action.go
+index 33ddd2b..8504a4c 100644
+--- a/option/rule_action.go
++++ b/option/rule_action.go
+@@ -267,8 +267,10 @@ func (r *RejectActionOptions) UnmarshalJSON(bytes []byte) error {
+ }
+ 
+ type RouteActionSniff struct {
+-	Sniffer badoption.Listable[string] `json:"sniffer,omitempty" enum:"tls,http,quic,dns,stun,bittorrent,dtls,ssh,rdp,ntp"`
+-	Timeout badoption.Duration         `json:"timeout,omitempty"`
++	// NekoBox compatibility: preserve the existing sniff-and-override setting.
++	OverrideDestination bool                       `json:"override_destination,omitempty"`
++	Sniffer             badoption.Listable[string] `json:"sniffer,omitempty" enum:"tls,http,quic,dns,stun,bittorrent,dtls,ssh,rdp,ntp"`
++	Timeout             badoption.Duration         `json:"timeout,omitempty"`
+ }
+ 
+ type RouteActionResolve struct {
+diff --git a/option/tls.go b/option/tls.go
+index 5c807d6..0e25648 100644
+--- a/option/tls.go
++++ b/option/tls.go
+@@ -250,7 +250,8 @@ type OutboundUTLSOptions struct {
+ }
+ 
+ type OutboundRealityOptions struct {
+-	Enabled   bool   `json:"enabled,omitempty"`
+-	PublicKey string `json:"public_key,omitempty"`
+-	ShortID   string `json:"short_id,omitempty"`
++	Enabled              bool   `json:"enabled,omitempty"`
++	PublicKey            string `json:"public_key,omitempty"`
++	ShortID              string `json:"short_id,omitempty"`
++	LegacyChromeFallback bool   `json:"legacy_chrome_fallback,omitempty"`
+ }
+diff --git a/protocol/group/selector.go b/protocol/group/selector.go
+index 5780fc2..ba4f521 100644
+--- a/protocol/group/selector.go
++++ b/protocol/group/selector.go
+@@ -12,6 +12,7 @@ import (
+ 	"github.com/sagernet/sing-box/common/urltest"
+ 	C "github.com/sagernet/sing-box/constant"
+ 	"github.com/sagernet/sing-box/log"
++	"github.com/sagernet/sing-box/nekoutils"
+ 	"github.com/sagernet/sing-box/option"
+ 	"github.com/sagernet/sing/common"
+ 	E "github.com/sagernet/sing/common/exceptions"
+@@ -153,6 +154,9 @@ func (s *Selector) SelectOutbound(tag string) bool {
+ 		}
+ 	}
+ 	s.interruptGroup.Interrupt(s.interruptExternalConnections)
++	if nekoutils.Selector_OnProxySelected != nil {
++		nekoutils.Selector_OnProxySelected(s.Tag(), tag)
++	}
+ 	if s.history != nil {
+ 		s.history.NotifyUpdated()
+ 	}
+diff --git a/protocol/vless/outbound.go b/protocol/vless/outbound.go
+index c0ece0a..3c29015 100644
+--- a/protocol/vless/outbound.go
++++ b/protocol/vless/outbound.go
+@@ -92,11 +92,15 @@ func NewOutbound(ctx context.Context, router adapter.Router, logger log.ContextL
+ 			return nil, E.New("unknown packet encoding: ", *options.PacketEncoding)
+ 		}
+ 	}
++	muxOpts := common.PtrValueOrDefault(options.Multiplex)
++	if muxOpts.Enabled {
++		options.Flow = ""
++	}
+ 	outbound.client, err = vless.NewClient(options.UUID, options.Flow, logger)
+ 	if err != nil {
+ 		return nil, err
+ 	}
+-	outbound.multiplexDialer, err = mux.NewClientWithOptions((*vlessDialer)(outbound), logger, common.PtrValueOrDefault(options.Multiplex))
++	outbound.multiplexDialer, err = mux.NewClientWithOptions((*vlessDialer)(outbound), logger, muxOpts)
+ 	if err != nil {
+ 		return nil, err
+ 	}
+diff --git a/route/rule/rule_action.go b/route/rule/rule_action.go
+index 6fd1707..a464e85 100644
+--- a/route/rule/rule_action.go
++++ b/route/rule/rule_action.go
+@@ -81,8 +81,9 @@ func NewRuleAction(logger logger.ContextLogger, action option.RuleAction) (adapt
+ 		return &RuleActionHijackDNS{}, nil
+ 	case C.RuleActionTypeSniff:
+ 		sniffAction := &RuleActionSniff{
+-			SnifferNames: action.SniffOptions.Sniffer,
+-			Timeout:      time.Duration(action.SniffOptions.Timeout),
++			OverrideDestination: action.SniffOptions.OverrideDestination,
++			SnifferNames:        action.SniffOptions.Sniffer,
++			Timeout:             time.Duration(action.SniffOptions.Timeout),
+ 		}
+ 		return sniffAction, sniffAction.build()
+ 	case C.RuleActionTypeResolve:
+diff --git a/route/rule/rule_set_local.go b/route/rule/rule_set_local.go
+index 9d5d21e..4656d25 100644
+--- a/route/rule/rule_set_local.go
++++ b/route/rule/rule_set_local.go
+@@ -11,6 +11,7 @@ import (
+ 	"github.com/sagernet/sing-box/adapter"
+ 	"github.com/sagernet/sing-box/common/srs"
+ 	C "github.com/sagernet/sing-box/constant"
++	"github.com/sagernet/sing-box/nekoutils"
+ 	"github.com/sagernet/sing-box/option"
+ 	"github.com/sagernet/sing/common"
+ 	E "github.com/sagernet/sing/common/exceptions"
+@@ -54,6 +55,28 @@ func NewLocalRuleSet(ctx context.Context, logger logger.Logger, tag string, opti
+ 			return nil, err
+ 		}
+ 	} else {
++		if strings.HasPrefix(options.LocalOptions.Path, "geoip:") {
++			rules, err := nekoutils.GetGeoIPHeadlessRules(strings.TrimPrefix(options.LocalOptions.Path, "geoip:"))
++			if err != nil {
++				return nil, err
++			}
++			err = ruleSet.reloadRules(rules)
++			if err != nil {
++				return nil, err
++			}
++			return ruleSet, nil
++		}
++		if strings.HasPrefix(options.LocalOptions.Path, "geosite:") {
++			rules, err := nekoutils.GetGeoSiteHeadlessRules(strings.TrimPrefix(options.LocalOptions.Path, "geosite:"))
++			if err != nil {
++				return nil, err
++			}
++			err = ruleSet.reloadRules(rules)
++			if err != nil {
++				return nil, err
++			}
++			return ruleSet, nil
++		}
+ 		filePath := filemanager.BasePath(ctx, strings.ReplaceAll(options.LocalOptions.Path, C.RuleSetTagPlaceholder, tag))
+ 		filePath, _ = filepath.Abs(filePath)
+ 		err := ruleSet.reloadFile(filePath)
+diff --git a/common/tls/reality_compact.go b/common/tls/reality_compact.go
+new file mode 100644
+--- /dev/null
++++ b/common/tls/reality_compact.go
+@@ -0,0 +1,30 @@
++//go:build with_utls
++
++package tls
++
++import (
++	utls "github.com/metacubex/utls"
++)
++
++// Compact TLS 1.3 compatibility variant retains both modern REALITY key shares.
++// It is intentionally a compatibility Hello, not an exact browser fingerprint.
++func realityCompactPreset() *utls.ClientHelloSpec {
++	return &utls.ClientHelloSpec{
++		TLSVersMin:         utls.VersionTLS13,
++		TLSVersMax:         utls.VersionTLS13,
++		CipherSuites:       []uint16{utls.TLS_AES_128_GCM_SHA256, utls.TLS_AES_256_GCM_SHA384, utls.TLS_CHACHA20_POLY1305_SHA256},
++		CompressionMethods: []byte{0},
++		Extensions: []utls.TLSExtension{
++			&utls.SNIExtension{},
++			&utls.SupportedVersionsExtension{Versions: []uint16{utls.VersionTLS13}},
++			&utls.SupportedCurvesExtension{Curves: []utls.CurveID{utls.X25519MLKEM768, utls.X25519}},
++			&utls.KeyShareExtension{KeyShares: []utls.KeyShare{{Group: utls.X25519MLKEM768}, {Group: utls.X25519}}},
++			&utls.SignatureAlgorithmsExtension{SupportedSignatureAlgorithms: []utls.SignatureScheme{
++				utls.ECDSAWithP256AndSHA256, utls.PSSWithSHA256, utls.PKCS1WithSHA256,
++				utls.ECDSAWithP384AndSHA384, utls.PSSWithSHA384, utls.PKCS1WithSHA384,
++				utls.PSSWithSHA512, utls.PKCS1WithSHA512,
++			}},
++			&utls.ALPNExtension{AlpnProtocols: []string{"h2", "http/1.1"}},
++		},
++	}
++}
+diff --git a/common/tls/reality_compact_test.go b/common/tls/reality_compact_test.go
+new file mode 100644
+--- /dev/null
++++ b/common/tls/reality_compact_test.go
+@@ -0,0 +1,34 @@
++//go:build with_utls
++
++package tls
++
++import (
++	utls "github.com/metacubex/utls"
++	"net"
++	"testing"
++)
++
++func TestRealityCompactLayout(t *testing.T) {
++	a, b := net.Pipe()
++	defer a.Close()
++	defer b.Close()
++	c := utls.UClient(a, &utls.Config{ServerName: "abcdefghijklmnopqrstuv", MinVersion: utls.VersionTLS13}, utls.HelloCustom)
++	if err := c.ApplyPreset(realityCompactPreset()); err != nil {
++		t.Fatal(err)
++	}
++	if err := c.BuildHandshakeState(); err != nil {
++		t.Fatal(err)
++	}
++	h := c.HandshakeState.Hello
++	if got := len(h.Raw) + 5; got != 1438 {
++		t.Fatalf("TLS record bytes=%d, expected1438", got)
++	}
++	if len(h.KeyShares) != 2 || h.KeyShares[0].Group != utls.X25519MLKEM768 || len(h.KeyShares[0].Data) != 1216 || h.KeyShares[1].Group != utls.X25519 || len(h.KeyShares[1].Data) != 32 {
++		t.Fatal("both required shares/order must remain")
++	}
++	keys := c.HandshakeState.State13.KeyShareKeys
++	if keys == nil || keys.Ecdhe == nil || keys.MlkemEcdhe == nil {
++		t.Fatal("private authentication/TLS keys absent")
++	}
++	t.Log("compact TLS record1438B; hybrid1216 + X25519 share32; both private keys present")
++}
