@@ -270,7 +270,7 @@ class MainActivity : ThemedActivity(),
             }
             .setNeutralButton(android.R.string.cancel, null)
             .setNeutralButton(R.string.action_learn_more) { _, _ ->
-                launchCustomTab("https://matsuridayo.github.io/nb4a-plugin/")
+                launchCustomTab("https://github.com/silikonoff/NickMadBox/blob/main/docs/BUILD.mdnb4a-plugin/")
             }
             .show()
     }
@@ -341,13 +341,13 @@ class MainActivity : ThemedActivity(),
             R.id.nav_tools -> displayFragment(ToolsFragment())
             R.id.nav_logcat -> displayFragment(LogcatFragment())
             R.id.nav_faq -> {
-                launchCustomTab("https://matsuridayo.github.io/")
+                launchCustomTab("https://github.com/silikonoff/NickMadBox/blob/main/docs/BUILD.md")
                 return false
             }
 
             R.id.nav_about -> displayFragment(AboutFragment())
             R.id.nav_tuiguang -> {
-                launchCustomTab("https://neko-box.pages.dev/喵")
+                launchCustomTab("https://github.com/silikonoff/NickMadBox/releases")
                 return false
             }
 
