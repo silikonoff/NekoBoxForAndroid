@@ -46,6 +46,7 @@ fun Project.setupCommon() {
         defaultConfig {
             minSdk = 21
             targetSdk = 35
+            resourceConfigurations += listOf("ru", "en")
         }
         buildTypes {
             getByName("release") {
@@ -200,10 +201,10 @@ fun Project.setupApp() {
                 outputFileName = if (isPreview) {
                     outputFileName.replace(
                         project.name,
-                        "NekoBox-" + requireMetadata().getProperty("PRE_VERSION_NAME")
+                        "NickMadBox-" + requireMetadata().getProperty("PRE_VERSION_NAME")
                     ).replace("-preview", "")
                 } else {
-                    outputFileName.replace(project.name, "NekoBox-$versionName")
+                    outputFileName.replace(project.name, "NickMadBox-$versionName")
                         .replace("-release", "")
                         .replace("-oss", "")
                 }

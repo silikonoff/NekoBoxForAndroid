@@ -1,2 +1,2 @@
-# Unified-diff context lines may intentionally contain a single space.
-buildScript/patches/*.patch text eol=lf -whitespace
+# Снимки зависимостей сохраняются побайтно, включая тестовые эталоны.
+third_party/** -text -whitespace

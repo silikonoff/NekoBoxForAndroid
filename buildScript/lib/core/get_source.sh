@@ -22,15 +22,4 @@ else
 fi
 popd
 
-####
-
-if [ ! -d "libneko" ]; then
-  git clone --no-checkout https://github.com/MatsuriDayo/libneko.git
-fi
-pushd libneko
-git checkout "$COMMIT_LIBNEKO"
-popd
-
-####
-
 popd

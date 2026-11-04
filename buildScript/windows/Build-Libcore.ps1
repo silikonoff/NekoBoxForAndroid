@@ -4,7 +4,8 @@ param(
     [Parameter(Mandatory)][string]$JavaHome,
     [string]$Go = 'go.exe',
     [string]$Target = 'android/arm64',
-    [switch]$PrepareOnly
+    [switch]$PrepareOnly,
+    [switch]$UseExistingEnvironment
 )
 $ErrorActionPreference = 'Stop'
 $repo = [IO.Path]::GetFullPath((Join-Path $PSScriptRoot '..\..'))
@@ -14,11 +15,13 @@ $env:JAVA_HOME = (Resolve-Path -LiteralPath $JavaHome).Path
 $env:ANDROID_HOME = (Resolve-Path -LiteralPath $SdkRoot).Path
 $env:ANDROID_SDK_ROOT = $env:ANDROID_HOME
 if (!$env:ANDROID_USER_HOME) { $env:ANDROID_USER_HOME = Join-Path $cache 'android' }
+if (!$UseExistingEnvironment) {
 $env:GOPATH = Join-Path $cache 'gopath'
 $env:GOCACHE = Join-Path $cache 'go-cache'
 $env:GOTMPDIR = Join-Path $cache 'tmp'
 $env:GOMAXPROCS = '2'
 $env:GOFLAGS = '-p=2'
+}
 New-Item -ItemType Directory -Force $env:GOTMPDIR | Out-Null
 $env:TEMP = $env:GOTMPDIR
 $env:TMP = $env:GOTMPDIR
@@ -51,8 +54,8 @@ foreach ($pin in 'COMMIT_SING_BOX','COMMIT_LIBNEKO','COMMIT_GOMOBILE') {
     if (!$pins[$pin]) { throw "Missing source pin: $pin" }
 }
 $core = Prepare-Source 'sing-box-1.14.4' 'https://github.com/SagerNet/sing-box.git' $pins.COMMIT_SING_BOX
-$null = Prepare-Source 'libneko' 'https://github.com/MatsuriDayo/libneko.git' $pins.COMMIT_LIBNEKO
-$mobile = Prepare-Source 'gomobile' 'https://github.com/MatsuriDayo/gomobile.git' $pins.COMMIT_GOMOBILE
+$mobile = Join-Path $repo 'third_party\gomobile'
+if (!(Test-Path -LiteralPath (Join-Path $mobile 'go.mod'))) { throw 'Missing bundled gomobile source' }
 $patch = Join-Path $repo 'buildScript\patches\nekobox-core.patch'
 & git.exe -C $core apply --reverse --check $patch 2>$null
 if ($LASTEXITCODE -ne 0) {
@@ -70,7 +73,7 @@ $output = Join-Path $repo 'app\libs\libcore.aar'
 New-Item -ItemType Directory -Force (Split-Path $output) | Out-Null
 Push-Location (Join-Path $repo 'libcore')
 try {
-    & $gomobile bind -target $Target -androidapi 21 -o $output -trimpath -ldflags '-s -w -X github.com/sagernet/sing-box/constant.Version=1.14.4-neko.5' -tags 'with_gvisor,with_quic,with_wireguard,with_utls,with_clash_api' .
+    & $gomobile bind -target $Target -androidapi 21 -o $output -trimpath -ldflags '-s -w -X github.com/sagernet/sing-box/constant.Version=1.14.4-nickmadbox.1' -tags 'with_gvisor,with_quic,with_wireguard,with_utls,with_clash_api' .
     if ($LASTEXITCODE) { throw 'libcore AAR build failed' }
 } finally { Pop-Location }
 Get-FileHash -LiteralPath $output -Algorithm SHA256

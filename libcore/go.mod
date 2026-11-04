@@ -93,6 +93,6 @@ require (
 	lukechampine.com/blake3 v1.3.0 // indirect
 )
 
-replace github.com/matsuridayo/libneko => ../../libneko
+replace github.com/matsuridayo/libneko => ../third_party/libneko
 
 replace github.com/sagernet/sing-box => ../../sing-box-1.14.4

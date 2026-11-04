@@ -1,3 +1,10 @@
+# Перенос ядра: история и текущая версия
+
+Текущий продукт — NickMadBox. Актуальные инструкции: [BUILD.md](BUILD.md),
+версия и проверки: [CHANGELOG.md](CHANGELOG.md),
+REALITY: [CHROME_COMPATIBILITY_ALPHA5.md](CHROME_COMPATIBILITY_ALPHA5.md).
+Далее сохранена история переноса; старые отметки приёмки относятся к своему этапу.
+
 # NekoBox SB: sing-box 1.14.4
 
 02.11.2026. Этап 1: сохранение интерфейса и функций NekoBox при обновлении ядра.
