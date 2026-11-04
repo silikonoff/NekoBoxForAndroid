@@ -1,6 +1,6 @@
 <svg xmlns="http://www.w3.org/2000/svg" width="1440" height="480" viewBox="0 0 1440 480" role="img" aria-labelledby="title desc">
   <title id="title">silikbox — VPN и прокси для Android</title>
-  <desc id="desc">Сине-графитовый баннер с названием silikbox, щитом с буквой S и линиями сети. Ваши серверы. Ваши правила.</desc>
+  <desc id="desc">Сине-графитовый баннер с названием silikbox, щитом с буквой S и линиями сети. VLESS / REALITY с актуальным Xray.</desc>
   <defs>
     <linearGradient id="bg" x2="1" y2="1"><stop stop-color="#0B1326"/><stop offset="1" stop-color="#101F3D"/></linearGradient>
     <linearGradient id="shield" x1="0" y1="0" x2="1" y2="1"><stop stop-color="#60A5FA"/><stop offset=".55" stop-color="#2683FF"/><stop offset="1" stop-color="#1648C0"/></linearGradient>
@@ -27,14 +27,14 @@
       <rect x="84" y="66" width="34" height="4" rx="2" fill="#60A5FA"/>
       <text x="134" y="74" fill="#A8C9F7" font-size="15" font-weight="600" letter-spacing="2.7">VPN И ПРОКСИ ДЛЯ ANDROID</text>
       <text x="78" y="241" fill="#F3F7FF" font-size="138" font-weight="700" letter-spacing="-5">silikbox</text>
-      <text x="86" y="296" fill="#B7CBE8" font-size="29">Ваши серверы. Ваши правила.</text>
+      <text x="86" y="296" fill="#B7CBE8" font-size="29">VLESS / REALITY с актуальным Xray.</text>
       <g font-size="14" font-weight="600" fill="#D4E5FF" text-anchor="middle">
         <g><rect x="84" y="343" width="184" height="37" rx="10" fill="#17345A" stroke="#315D94"/><text x="176" y="367">VLESS / REALITY</text></g>
         <g><rect x="280" y="343" width="142" height="37" rx="10" fill="#122A48" stroke="#294C76"/><text x="351" y="367">WIREGUARD</text></g>
         <g><rect x="434" y="343" width="124" height="37" rx="10" fill="#122A48" stroke="#294C76"/><text x="496" y="367">ROUTING</text></g>
         <g><rect x="570" y="343" width="77" height="37" rx="10" fill="#122A48" stroke="#294C76"/><text x="608.5" y="367">DNS</text></g>
       </g>
-      <text x="86" y="435" fill="#7694BD" font-size="15">sing-box 1.14.4<tspan dx="18" fill="#3C608F">/</tspan><tspan dx="18">OPEN SOURCE</tspan></text>
+      <text x="86" y="435" fill="#7694BD" font-size="15">3x-ui 3.11.0<tspan dx="14" fill="#3C608F">/</tspan><tspan dx="14">Xray 26.10.31</tspan><tspan dx="14" fill="#3C608F">/</tspan><tspan dx="14">sing-box 1.14.4</tspan></text>
       <rect x="1294" y="37" width="87" height="28" rx="14" fill="#1A3456" stroke="#32527A"/>
       <text x="1337.5" y="56" fill="#A4CAFF" text-anchor="middle" font-size="12" font-weight="600" letter-spacing="2">ALPHA</text>
     </g>

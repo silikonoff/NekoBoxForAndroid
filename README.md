@@ -1,10 +1,10 @@
 <p align="center">
-  <img src="docs/assets/silikbox-banner.svg" alt="silikbox — VPN и прокси для Android. Ваши серверы. Ваши правила." width="1440">
+  <img src="docs/assets/silikbox-banner.svg" alt="silikbox — VLESS / REALITY с актуальными Xray и 3x-ui" width="1440">
 </p>
 
 <p align="center">
-  <strong>Русский Android-клиент для ваших VPN-серверов и подписок.</strong><br>
-  VLESS / REALITY · WireGuard · Hysteria 2 · TUIC · гибкие правила маршрутизации
+  <strong>Android-клиент для актуальных 3x-ui и Xray.</strong><br>
+  VLESS TCP / REALITY / Vision без ручной смены fingerprint · русский интерфейс
 </p>
 
 <p align="center">
@@ -28,6 +28,10 @@
 ---
 
 ## Что такое silikbox
+
+**Главная цель форка — сохранить привычный импорт профилей NekoBox и рабочее соединение VLESS TCP / REALITY / Vision после обновления сервера до последних стабильных 3x-ui и Xray.** Для этого мы обновили sing-box и добавили автоматическую REALITY-совместимость.
+
+> **Совместимость с актуальным серверным стеком:** [3x-ui 3.11.0](https://github.com/MHSanaei/3x-ui/releases/tag/v3.11.0) + [Xray 26.10.31](https://github.com/XTLS/Xray-core/releases/tag/v26.10.31). Это последние стабильные релизы по состоянию на **4 ноября 2026 года**. Проверенный сценарий: **VLESS + TCP/RAW + REALITY + XTLS Vision**, включая исходные ключи с `fp=chrome`.
 
 **silikbox** — открытый VPN- и прокси-клиент для Android, который развивает **silikonoff** на основе NekoBox. Внутри — **sing-box 1.14.4** с нашим слоем совместимости старых профилей и Android-интерфейса.
 
@@ -132,6 +136,8 @@ silikbox работает с **вашим сервером или подписк
 <a id="compatibility"></a>
 
 ## REALITY, Xray и 3x-ui
+
+С текущими **3x-ui 3.11.0 и Xray 26.10.31** основной VLESS TCP / REALITY / Vision-сценарий принят на сервере и физическом Android-устройстве с механизмом нашей alpha5. В silikbox этот механизм сохранён. Обновление сервера не требует вручную менять Chrome на другой fingerprint в ключе. Новые будущие версии серверного ПО проверяются отдельно.
 
 **3x-ui управляет сервером; соединение устанавливается по параметрам профиля.** Для silikbox важны выбранные в панели протокол, транспорт, TLS/REALITY, SNI, ключ, Short ID и Flow.
 

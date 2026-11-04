@@ -2,6 +2,8 @@
 
 Готовые подписанные APK. Собирать приложение самостоятельно не требуется.
 
+**Для последних стабильных [3x-ui 3.11.0](https://github.com/MHSanaei/3x-ui/releases/tag/v3.11.0) и [Xray 26.10.31](https://github.com/XTLS/Xray-core/releases/tag/v26.10.31)** по состоянию на 04.11.2026: **VLESS TCP/RAW + REALITY + XTLS Vision**, включая исходные Chrome-профили. Совместимость механизма проверена в нашей alpha5 и сохраняется в silikbox.
+
 ## Актуальная версия: 1.0.0-alpha2
 
 ### [⬇ Скачать silikbox для Android · ARM64](https://github.com/silikonoff/silikbox/releases/download/v1.0.0-alpha2/silikbox-1.0.0-alpha2-arm64-v8a.apk)
