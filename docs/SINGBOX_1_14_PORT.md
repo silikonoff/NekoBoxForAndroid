@@ -1,6 +1,6 @@
 # Перенос ядра: история и текущая версия
 
-Текущий продукт — NickMadBox. Актуальные инструкции: [BUILD.md](BUILD.md),
+Текущий продукт — silikbox. Актуальные инструкции: [BUILD.md](BUILD.md),
 версия и проверки: [CHANGELOG.md](CHANGELOG.md),
 REALITY: [CHROME_COMPATIBILITY_ALPHA5.md](CHROME_COMPATIBILITY_ALPHA5.md).
 Далее сохранена история переноса; старые отметки приёмки относятся к своему этапу.
@@ -25,7 +25,7 @@ Chrome REALITY acceptance: [alpha4 compatibility](CHROME_COMPATIBILITY_ALPHA4.md
 | Android package | `io.github.silikonoff.nekobox`, debug suffix `.debug` |
 
 `buildScript/lib/core/get_source_env.sh` фиксирует коммиты зависимостей.
-`buildScript/patches/nekobox-core.patch` применяется поверх чистого upstream1.14.4.
+`buildScript/patches/silikbox-core.patch` применяется поверх чистого upstream1.14.4.
 Необходимые дополнения исходного Neko сохранены отдельным патчем, а не скрытой
 зависимостью от плавающей ветки ядра. GPL notices и оригинальные AUTHORS сохранены.
 

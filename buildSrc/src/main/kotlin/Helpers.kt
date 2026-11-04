@@ -18,7 +18,7 @@ private lateinit var localProperties: Properties
 fun Project.requireMetadata(): Properties {
     if (!::metadata.isInitialized) {
         metadata = Properties().apply {
-            load(rootProject.file("nb4a.properties").inputStream())
+            load(rootProject.file("silikbox.properties").inputStream())
         }
     }
     return metadata
@@ -201,10 +201,10 @@ fun Project.setupApp() {
                 outputFileName = if (isPreview) {
                     outputFileName.replace(
                         project.name,
-                        "NickMadBox-" + requireMetadata().getProperty("PRE_VERSION_NAME")
+                        "silikbox-" + requireMetadata().getProperty("PRE_VERSION_NAME")
                     ).replace("-preview", "")
                 } else {
-                    outputFileName.replace(project.name, "NickMadBox-$versionName")
+                    outputFileName.replace(project.name, "silikbox-$versionName")
                         .replace("-release", "")
                         .replace("-oss", "")
                 }
